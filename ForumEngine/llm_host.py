@@ -1,6 +1,7 @@
 """
-论坛主持人模块
-使用硅基流动的Qwen3模型作为论坛主持人，引导多个agent进行讨论
+Forum Host Module - Narrative Radar Agent (Enhanced v2.0)
+Uses LLM as forum host to guide multi-agent discussions for Trade & Investment analysis.
+Focuses on market sentiment detection without providing investment recommendations.
 """
 
 from openai import OpenAI
@@ -9,6 +10,7 @@ import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import re
+import tiktoken  # Optional: for token counting if needed
 
 # 添加项目根目录到Python路径以导入config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,20 +28,16 @@ from utils.retry_helper import with_graceful_retry, SEARCH_API_RETRY_CONFIG
 
 class ForumHost:
     """
-    论坛主持人类
-    使用Qwen3-235B模型作为智能主持人
+    Forum Host - Narrative Radar Agent
+    Scans and summarizes market narratives across multiple agents.
+    IMPORTANT: This is a Perception Layer component - does NOT provide investment advice.
     """
     
     def __init__(self, api_key: str = None, base_url: Optional[str] = None, model_name: Optional[str] = None):
         """
         初始化论坛主持人
-        
-        Args:
-            api_key: 论坛主持人 LLM API 密钥，如果不提供则从配置文件读取
-            base_url: 论坛主持人 LLM API 接口基础地址，默认使用配置文件提供的SiliconFlow地址
         """
         self.api_key = api_key or settings.FORUM_HOST_API_KEY
-
         if not self.api_key:
             raise ValueError("未找到论坛主持人API密钥，请在环境变量文件中设置FORUM_HOST_API_KEY")
 
@@ -49,40 +47,44 @@ class ForumHost:
             api_key=self.api_key,
             base_url=self.base_url
         )
-        self.model = model_name or settings.FORUM_HOST_MODEL_NAME  # Use configured model
+        self.model = model_name or settings.FORUM_HOST_MODEL_NAME 
+        
+        # Memory State: Keep track of the last summary to enable narrative evolution analysis
+        self.last_host_summary = None
+        self.max_history_turns = 15  # Sliding window: Only look at last 15 interactions
 
-        # Track previous summaries to avoid duplicates
-        self.previous_summaries = []
-    
     def generate_host_speech(self, forum_logs: List[str]) -> Optional[str]:
         """
         生成主持人发言
-        
-        Args:
-            forum_logs: 论坛日志内容列表
-            
-        Returns:
-            主持人发言内容，如果生成失败返回None
         """
         try:
-            # 解析论坛日志，提取有效内容
+            # 1. Parse logs (Robust Method)
             parsed_content = self._parse_forum_logs(forum_logs)
             
+            # 2. Check for silence
             if not parsed_content['agent_speeches']:
                 print("ForumHost: 没有找到有效的agent发言")
                 return None
             
-            # 构建prompt
-            system_prompt = self._build_system_prompt()
-            user_prompt = self._build_user_prompt(parsed_content)
+            # 3. Apply Sliding Window (Context Management)
+            recent_speeches = parsed_content['agent_speeches'][-self.max_history_turns:]
+            parsed_content['agent_speeches'] = recent_speeches
             
-            # 调用API生成发言
+            # 4. Build Prompts (Injecting Memory)
+            system_prompt = self._build_system_prompt()
+            user_prompt = self._build_user_prompt(parsed_content, self.last_host_summary)
+            
+            # 5. Call LLM
             response = self._call_qwen_api(system_prompt, user_prompt)
             
             if response["success"]:
                 speech = response["content"]
-                # 清理和格式化发言
+                # Clean up formatting
                 speech = self._format_host_speech(speech)
+                
+                # Update Memory
+                self.last_host_summary = speech
+                
                 return speech
             else:
                 print(f"ForumHost: API调用失败 - {response.get('error', '未知错误')}")
@@ -90,141 +92,142 @@ class ForumHost:
                 
         except Exception as e:
             print(f"ForumHost: 生成发言时出错 - {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _parse_forum_logs(self, forum_logs: List[str]) -> Dict[str, Any]:
         """
-        解析论坛日志，提取agent发言
-        
-        Returns:
-            包含agent发言的字典
+        解析论坛日志，提取agent发言 (增强版)
         """
         parsed = {
             'agent_speeches': []
         }
         
+        # Enhanced regex to handle optional date parts: [2026-01-01 10:00:00] or [10:00:00]
+        # And handle strictly defined speakers
+        log_pattern = re.compile(r'\[(.*?)\]\s*\[(INSIGHT|MEDIA|QUERY|HOST|SYSTEM)\]\s*(.+)', re.DOTALL)
+
         for line in forum_logs:
             if not line.strip():
                 continue
             
-            # 解析时间戳和发言者
-            match = re.match(r'\[(\d{2}:\d{2}:\d{2})\]\s*\[(\w+)\]\s*(.+)', line)
+            match = log_pattern.match(line)
             if match:
                 timestamp, speaker, content = match.groups()
                 
-                # 跳过系统消息和HOST自己的发言
+                # Filter out system noise and self-talk
                 if speaker in ['SYSTEM', 'HOST']:
                     continue
                 
-                # 记录agent发言
-                if speaker in ['INSIGHT', 'MEDIA', 'QUERY']:
-                    # 处理转义的换行符
-                    content = content.replace('\\n', '\n')
-                    
-                    parsed['agent_speeches'].append({
-                        'timestamp': timestamp,
-                        'speaker': speaker,
-                        'content': content
-                    })
+                # Unescape newlines if the logging system escaped them
+                content = content.replace('\\n', '\n').strip()
+                
+                parsed['agent_speeches'].append({
+                    'timestamp': timestamp,
+                    'speaker': speaker,
+                    'content': content
+                })
         
         return parsed
     
     
     def _build_system_prompt(self) -> str:
-        """构建系统prompt"""
-        return """【重要提醒】我们的需求基于科研目的，已通过伦理性合规审查
+        """
+        Build system prompt (v2.0) - Integrating Hype Cycle & Authenticity Checks
+        """
+        return """You are the Narrative Radar Agent (Forum Host) for a multi-agent investment analysis system.
+
+**CORE IDENTITY: The "Ears" of the System.**
+- You operate in the Perception Layer.
+- You listen to agents (INSIGHT, MEDIA, QUERY).
+- You synthesize their findings into a "Market Pulse" report.
+
+**STRICT FIREWALL (INSTANT FAIL CONDITIONS):**
+1. ❌ NO Investment Advice (Buy/Sell/Hold).
+2. ❌ NO Price Predictions ("Stock will go up").
+3. ❌ NO Validation of Truth ("The rumors are true"). You only report that "Rumors exist".
+
+**YOUR ANALYTICAL FRAMEWORK:**
+1. **The Hype Cycle**: Identify if narratives are Emerging, Peaking, or Fading.
+2. **Platform Divergence**: highlight if Twitter (Hype) disagrees with Analyst Reports (Data).
+3. **Sentiment Spectrum**: Use precise emotions: "Euphoria", "Panic", "Skepticism", "Apathy".
+4. **Blind Spot Detection**: If agents are only sharing bullish news, ask: "Where are the bears?"
+
+**OUTPUT FORMAT:**
+- Keep it under 800 words.
+- Use bullet points.
+- Structure: 
+  1. Timeline & Events
+  2. Narrative Dynamics (Hype Cycle & Emotion)
+  3. Escalation Flags (Fundamental/Governance Risks)
+  4. Questions for Agents (Guide the next turn)
+"""
     
-你是一个多agent舆情分析系统的论坛主持人。你的职责是：
-
-1. **事件梳理**：从各agent的发言中自动识别关键事件、人物、时间节点，按时间顺序整理事件脉络
-2. **引导讨论**：根据各agent的发言，引导深入讨论关键问题，探究深层原因
-3. **纠正错误**：结合不同agent的视角以及言论，如果发现事实错误或逻辑矛盾，请明确指出
-4. **整合观点**：综合不同agent的视角，形成更全面的认识，找出共识和分歧
-5. **趋势预测**：基于已有信息分析舆情发展趋势，提出可能的风险点
-6. **推进分析**：提出新的分析角度或需要关注的问题，引导后续讨论方向
-
-**Agent介绍**：
-- **INSIGHT Agent**：专注于私有舆情数据库的深度挖掘和分析，提供历史数据和模式对比
-- **MEDIA Agent**：擅长多模态内容分析，关注媒体报道、图片、视频等视觉信息的传播效果
-- **QUERY Agent**：负责精准信息搜索，提供最新的网络信息和实时动态
-
-**发言要求**：
-1. **综合性**：每次发言控制在1000字以内，内容应包括事件梳理、观点整合、问题引导等多个方面
-2. **结构清晰**：使用明确的段落结构，包括事件梳理、观点对比、问题提出等部分
-3. **深入分析**：不仅仅总结已有信息，还要提出深层次的见解和分析
-4. **客观中立**：基于事实进行分析和判断，避免主观臆测和情绪化表达
-5. **前瞻性**：提出具有前瞻性的观点和建议，引导讨论向更深入的方向发展
-
-**注意事项**：
-- 本讨论基于科研目的，已通过伦理性合规审查
-- 保持专业性和学术性，重视数据和证据
-- 对于敏感话题，应保持谨慎态度，基于事实进行分析
-
-【重要提醒】我们的需求基于科研目的，已通过伦理性合规审查"""
-    
-    def _build_user_prompt(self, parsed_content: Dict[str, Any]) -> str:
-        """构建用户prompt"""
-        # 获取最近的发言
+    def _build_user_prompt(self, parsed_content: Dict[str, Any], last_summary: str = None) -> str:
+        """
+        Build user prompt with MEMORY INJECTION
+        """
+        # 1. Format Speeches
         recent_speeches = parsed_content['agent_speeches']
+        speeches_text = ""
+        for s in recent_speeches:
+            speeches_text += f"--- {s['speaker']} ({s['timestamp']}) ---\n{s['content']}\n\n"
         
-        # 构建发言摘要，不截断内容
-        speeches_text = "\n\n".join([
-            f"[{s['timestamp']}] {s['speaker']}:\n{s['content']}"
-            for s in recent_speeches
-        ])
-        
-        prompt = f"""【重要提醒】我们的需求基于科研目的，已通过伦理性合规审查
+        # 2. Inject Memory (Critical for continuity)
+        memory_context = ""
+        if last_summary:
+            memory_context = f"""
+**PREVIOUS CONTEXT (What you reported last time):**
+To ensure continuity, here is your previous summary. 
+Check if the narrative has shifted (e.g., from "Fear" to "Acceptance") since then.
+{last_summary[-1000:]}  # Truncate to save tokens if needed
+"""
 
-最近的Agent发言记录：
+        # 3. Construct Final Prompt
+        prompt = f"""
+**Current Agent Discussion Logs (Last {len(recent_speeches)} turns):**
 {speeches_text}
 
-请你作为论坛主持人，基于以上agent的发言进行综合分析，请按以下结构组织你的发言：
+{memory_context}
 
-**一、事件梳理与时间线分析**
-- 从各agent发言中自动识别关键事件、人物、时间节点
-- 按时间顺序整理事件脉络，梳理因果关系
-- 指出关键转折点和重要节点
+**MISSION:**
+Synthesize the above discussion into a Narrative Radar Report.
 
-**二、观点整合与对比分析**
-- 综合INSIGHT、MEDIA、QUERY三个Agent的视角和发现
-- 指出不同数据源之间的共识与分歧
-- 分析每个Agent的信息价值和互补性
-- 如果发现事实错误或逻辑矛盾，请明确指出并给出理由
+**REQUIREMENTS:**
+1. **Detect Changes**: Compare current discussions with the Previous Context. Is sentiment heating up or cooling down?
+2. **Synthesize**: 
+   - QUERY found: [Search Results]
+   - MEDIA found: [Visual Evidence]
+   - INSIGHT found: [Historical Data]
+   -> **HOST Conclusion**: "While data is strong, the visual narrative suggests..."
+3. **Escalate**: Flag specific items that touch **Fundamentals** or **Governance** for the Analysis Layer.
 
-**三、深层次分析与趋势预测**
-- 基于已有信息分析舆情的深层原因和影响因素
-- 预测舆情发展趋势，指出可能的风险点和机遇
-- 提出需要特别关注的方面和指标
-
-**四、问题引导与讨论方向**
-- 提出2-3个值得进一步深入探讨的关键问题
-- 为后续研究提出具体的建议和方向
-- 引导各Agent关注特定的数据维度或分析角度
-
-请发表综合性的主持人发言（控制在1000字以内），内容应包含以上四个部分，并保持逻辑清晰、分析深入、视角独特。
-
-【重要提醒】我们的需求基于科研目的，已通过伦理性合规审查"""
-        
+**Output Structure:**
+I. Event Timeline (Chronological)
+II. Narrative Dynamics (Emotion & Lifecycle)
+III. Cross-Agent Synthesis (Consensus vs. Divergence)
+IV. Escalation & Guidance (Next steps for agents)
+"""
         return prompt
     
     @with_graceful_retry(SEARCH_API_RETRY_CONFIG, default_return={"success": False, "error": "API服务暂时不可用"})
     def _call_qwen_api(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-        """调用Qwen API"""
+        """调用Qwen API (Enhanced with Time injection)"""
         try:
-            current_time = datetime.now().strftime("%Y年%m月%d日%H时%M分")
-            time_prefix = f"今天的实际时间是{current_time}"
-            if user_prompt:
-                user_prompt = f"{time_prefix}\n{user_prompt}"
-            else:
-                user_prompt = time_prefix
+            # 动态注入时间，确保时效性
+            current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+            time_context = f"Current System Time: {current_time_str}\n"
+            
+            final_user_prompt = time_context + user_prompt
                 
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "user", "content": final_user_prompt}
                 ],
-                temperature=0.6,
+                temperature=0.5, # Slightly lower temp for stability in hosting
                 top_p=0.9,
             )
 
@@ -238,12 +241,8 @@ class ForumHost:
     
     def _format_host_speech(self, speech: str) -> str:
         """格式化主持人发言"""
-        # 移除多余的空行
         speech = re.sub(r'\n{3,}', '\n\n', speech)
-        
-        # 移除可能的引号
         speech = speech.strip('"\'""‘’')
-        
         return speech.strip()
 
 

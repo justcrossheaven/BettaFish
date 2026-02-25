@@ -54,7 +54,7 @@ from .graphrag.prompts import (
     format_graph_results_for_prompt
 )
 from utils.knowledge_logger import init_knowledge_log
-
+from utils.market_data import get_market_snapshot, extract_ticker_from_query, format_market_anchor_for_prompt
 
 class StageOutputFormatError(ValueError):
     """阶段性输出结构不符合预期时抛出的受控异常。"""
@@ -489,6 +489,30 @@ class ReportAgent:
         logger.info(f"输入数据 - 报告数量: {len(reports)}, 论坛日志长度: {len(str(forum_logs))}")
         emit('stage', {'stage': 'agent_start', 'report_id': report_id, 'query': query})
 
+        # ==================== Market Snapshot (Anti-Hallucination) ====================
+        # Fetch real-time market data to anchor dates and prices in LLM prompts.
+        # This prevents the LLM from hallucinating future dates or incorrect stock prices.
+        market_snapshot = None
+        ticker = extract_ticker_from_query(query)
+        if ticker:
+            market_snapshot = get_market_snapshot(ticker)
+            if market_snapshot:
+                emit('stage', {
+                    'stage': 'market_snapshot',
+                    'ticker': market_snapshot.get('ticker'),
+                    'price': market_snapshot.get('current_price'),
+                    'date': market_snapshot.get('query_date'),
+                    'status': market_snapshot.get('status')
+                })
+                logger.info(f"🔒 System anchored to: {market_snapshot.get('query_date')} | "
+                           f"Price: ${market_snapshot.get('current_price')} | "
+                           f"Status: {market_snapshot.get('status')}")
+            else:
+                logger.warning(f"⚠️ Could not fetch market data for {ticker}, proceeding without anchor")
+        else:
+            logger.debug(f"No ticker extracted from query: {query[:50]}...")
+        # ==================== End Market Snapshot ====================
+
         try:
             template_result = self._select_template(query, reports, forum_logs, custom_template)
             template_result = self._ensure_mapping(
@@ -565,6 +589,7 @@ class ReportAgent:
                 chapter_targets,
                 word_plan,
                 template_overview,
+                market_snapshot,
             )
             # IR/渲染需要的全局元数据，带上设计稿给出的标题/主题/目录/篇幅信息
             manifest_meta = {
@@ -1040,6 +1065,7 @@ class ReportAgent:
         chapter_directives: Dict[str, Any],
         word_plan: Dict[str, Any],
         template_overview: Dict[str, Any],
+        market_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         构造章节生成所需的共享上下文。
@@ -1057,6 +1083,7 @@ class ReportAgent:
             chapter_directives: 字数规划节点返回的章节指令映射。
             word_plan: 篇幅规划原始结果，包含全局字数约束。
             template_overview: 模板切片提炼的章节骨架摘要。
+            market_snapshot: Python-verified market data for anti-hallucination anchoring.
 
         返回:
             dict: LLM章节生成所需的全集上下文，包含主题色、布局、约束等键。
@@ -1084,6 +1111,8 @@ class ReportAgent:
             "template_overview": template_overview or {},
             "chapter_directives": chapter_directives or {},
             "word_plan": word_plan or {},
+            # Anti-hallucination market anchor - provides Python-verified date and price
+            "market_snapshot": market_snapshot,
         }
 
     def _normalize_reports(self, reports: List[Any]) -> Dict[str, str]:

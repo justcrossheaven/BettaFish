@@ -265,6 +265,8 @@ class TemplateSelectionNode(BaseNode):
             return "适用于社会热点和公共事件分析"
         elif '突发' in template_name or '危机' in template_name:
             return "适用于突发事件和危机公关"
+        elif 'Technology' in template_name or 'AI Sector' in template_name:
+            return "For AI/tech sector trends, chip demand forecasts, supply-chain dynamics, semiconductor analysis, and memory stock analysis (HBM, DRAM, NAND, SSD)"
         
         return "通用报告模板"
     

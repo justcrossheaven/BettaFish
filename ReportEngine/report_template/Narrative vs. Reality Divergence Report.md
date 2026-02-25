@@ -1,0 +1,29 @@
+### **Narrative vs. Reality Divergence Report**
+
+- **1.0 Executive Summary**
+  - 1.1 The Divergence Thesis
+  - 1.2 Key Alpha Signals
+  - 1.3 Investment Implications
+- **2.0 What the Market is Saying (Perception Layer)**
+  - 2.1 Dominant Narratives & Sentiment Analysis
+  - 2.2 Social Media & Forum Pulse
+  - 2.3 Analyst Consensus vs. Retail Sentiment
+  - 2.4 Narrative Velocity (Emerging/Peaking/Fading)
+- **3.0 What the Data Shows (Reality Layer)**
+  - 3.1 Fundamental Analysis & Key Metrics
+  - 3.2 Technical Chart Analysis
+  - 3.3 Valuation Models & Fair Value Estimates
+  - 3.4 Forensic Evidence (Slides, Filings, Earnings)
+- **4.0 The Divergence Analysis**
+  - 4.1 Bull Case vs. Bear Case Breakdown
+  - 4.2 Sentiment-Price Gap Assessment
+  - 4.3 Historical Divergence Patterns
+  - 4.4 Divergence Index Score
+- **5.0 Risk Assessment**
+  - 5.1 Upside Surprises (What Could Go Right)
+  - 5.2 Downside Risks (What Could Go Wrong)
+  - 5.3 Narrative Fragility Analysis
+- **6.0 Investment Conclusions**
+  - 6.1 SWOT Analysis
+  - 6.2 Actionable Recommendations
+  - 6.3 Key Catalysts & Watchpoints

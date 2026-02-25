@@ -1,0 +1,28 @@
+### **Visual Technical & Forensic Analysis Report**
+
+- **1.0 Executive Summary**
+  - 1.1 Key Findings
+  - 1.2 Technical Outlook
+  - 1.3 Actionable Insights
+- **2.0 Technical Chart Analysis**
+  - 2.1 Price Action & Trend Structure
+  - 2.2 Key Support & Resistance Levels
+  - 2.3 Volume Analysis
+  - 2.4 Technical Indicators Review
+- **3.0 Visual Evidence (Media Forensics)**
+  - 3.1 Product & Technology Imagery Analysis
+  - 3.2 Investor Presentation Forensics
+  - 3.3 Management Slide Deck Review
+  - 3.4 Visual Data Extraction
+- **4.0 Pattern Recognition**
+  - 4.1 Chart Pattern Identification
+  - 4.2 Historical Pattern Analogies
+  - 4.3 Breakout/Breakdown Analysis
+- **5.0 Risk Assessment**
+  - 5.1 Technical Risk Levels
+  - 5.2 Invalidation Points
+  - 5.3 Volatility Assessment
+- **6.0 Conclusions**
+  - 6.1 Technical Summary
+  - 6.2 Trade Setup Recommendations
+  - 6.3 Key Levels to Watch

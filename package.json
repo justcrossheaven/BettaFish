@@ -1,0 +1,12 @@
+{
+    "name": "bettafish-twitter-auth",
+    "version": "1.0.0",
+    "description": "Twitter cookie authentication for BettaFish",
+    "type": "module",
+    "scripts": {
+        "get-twitter-cookies": "node get_twitter_cookies.js"
+    },
+    "dependencies": {
+        "playwright": "^1.41.0"
+    }
+}

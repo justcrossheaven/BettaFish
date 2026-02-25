@@ -86,10 +86,25 @@ class KeywordOptimizer:
                 content = response["content"]
                 try:
                     # 尝试解析JSON格式的响应
-                    if content.strip().startswith('{'):
-                        parsed = json.loads(content)
-                        keywords = parsed.get("keywords", [])
-                        reasoning = parsed.get("reasoning", "")
+                    content_stripped = content.strip()
+                    if content_stripped.startswith('{') or content_stripped.startswith('['):
+                        # 如果有markdown标签，清理一下
+                        if '```' in content_stripped:
+                            import re
+                            json_match = re.search(r'(\{.*\}|\[.*\])', content_stripped, re.DOTALL)
+                            if json_match:
+                                content_stripped = json_match.group(1)
+                        
+                        parsed = json.loads(content_stripped)
+                        if isinstance(parsed, dict):
+                            keywords = parsed.get("keywords", [])
+                            reasoning = parsed.get("reasoning", "")
+                        elif isinstance(parsed, list):
+                            keywords = parsed
+                            reasoning = "LLM returned a list of keywords directly"
+                        else:
+                            keywords = self._extract_keywords_from_text(content)
+                            reasoning = content
                     else:
                         # 如果不是JSON格式，尝试从文本中提取关键词
                         keywords = self._extract_keywords_from_text(content)
@@ -258,12 +273,21 @@ class KeywordOptimizer:
         
         for keyword in keywords:
             if isinstance(keyword, str):
-                keyword = keyword.strip().strip('"\'""''')
+                # 清理
+                keyword = keyword.strip().strip('"\'“”‘’')
+                
+                import re
+                # 排除纯标点符号或单个字符的无意义关键词
+                if keyword in ['[', ']', '{', '}', '(', ')', '‘', '’', '“', '”', "'", '"', '、', ',', '.', ':', '：']:
+                    continue
+                
+                # 某些模型可能会返回带括号的解释，尝试移除
+                keyword = re.sub(r'[\(\[（【].*?[\)\]）】]', '', keyword).strip()
                 
                 # 基本验证
                 if (keyword and 
                     len(keyword) <= 20 and 
-                    len(keyword) >= 1 and
+                    len(keyword) >= 2 and # 至少2个字符
                     not any(bad_word in keyword for bad_word in bad_keywords)):
                     validated.append(keyword)
         

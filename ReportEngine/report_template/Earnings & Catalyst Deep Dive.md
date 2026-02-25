@@ -1,0 +1,29 @@
+### **Earnings & Catalyst Deep Dive**
+
+- **1.0 Executive Summary**
+  - 1.1 Quarterly Highlights
+  - 1.2 Beat/Miss Analysis
+  - 1.3 Key Takeaways
+- **2.0 Earnings Analysis**
+  - 2.1 Revenue Performance
+  - 2.2 Margin Analysis
+  - 2.3 EPS Breakdown
+  - 2.4 Segment-by-Segment Review
+- **3.0 Management Guidance**
+  - 3.1 Forward Guidance Summary
+  - 3.2 Guidance vs. Consensus
+  - 3.3 Management Commentary Analysis
+  - 3.4 Tone & Confidence Assessment
+- **4.0 Upcoming Catalysts**
+  - 4.1 Calendar of Events
+  - 4.2 Product Launches & Announcements
+  - 4.3 Macro & Industry Catalysts
+  - 4.4 Catalyst Probability Matrix
+- **5.0 Market Reaction Analysis**
+  - 5.1 Post-Earnings Price Action
+  - 5.2 Analyst Revision Trends
+  - 5.3 Options Market Signals
+- **6.0 Investment Implications**
+  - 6.1 Updated Thesis
+  - 6.2 Position Recommendations
+  - 6.3 Key Watchpoints

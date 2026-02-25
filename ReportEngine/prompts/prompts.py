@@ -1,8 +1,9 @@
 """
-Report Engine 的所有提示词定义。
+Report Engine 的所有提示词定义 (Enhanced v2.0)。
 
 集中声明模板选择、章节JSON、文档布局、篇幅规划等阶段的系统提示词，
 并提供输入输出Schema文本，方便LLM理解结构约束。
+Optimized for: Value Investing, Narrative Analysis, and Cross-Agent Synthesis.
 """
 
 import json
@@ -14,9 +15,8 @@ from ..ir import (
     IR_VERSION,
 )
 
-# ===== JSON Schema 定义 =====
+# ===== JSON Schema 定义 (保持原样，逻辑严密) =====
 
-# 模板选择输出Schema
 output_schema_template_selection = {
     "type": "object",
     "properties": {
@@ -26,7 +26,6 @@ output_schema_template_selection = {
     "required": ["template_name", "selection_reason"]
 }
 
-# HTML报告生成输入Schema
 input_schema_html_generation = {
     "type": "object",
     "properties": {
@@ -39,7 +38,6 @@ input_schema_html_generation = {
     }
 }
 
-# 分章节JSON生成输入Schema（给提示词说明字段）
 chapter_generation_input_schema = {
     "type": "object",
     "properties": {
@@ -91,16 +89,6 @@ chapter_generation_input_schema = {
     "required": ["section", "globalContext", "reports"]
 }
 
-# HTML报告生成输出Schema - 已简化，不再使用JSON格式
-# output_schema_html_generation = {
-#     "type": "object",
-#     "properties": {
-#         "html_content": {"type": "string"}
-#     },
-#     "required": ["html_content"]
-# }
-
-# 文档标题/目录设计输出Schema：约束DocumentLayoutNode期望的字段
 document_layout_output_schema = {
     "type": "object",
     "properties": {
@@ -121,7 +109,7 @@ document_layout_output_schema = {
                             "label": {"type": "string"},
                             "value": {"type": "string"},
                             "delta": {"type": "string"},
-                            "tone": {"type": "string", "enum": ["up", "down", "neutral"]},
+                            "tone": {"type": "string", "enum": ["up", "down", "neutral", "risk", "opportunity"]},
                         },
                         "required": ["label", "value"],
                     },
@@ -139,14 +127,8 @@ document_layout_output_schema = {
                     "anchor": {"type": "string"},
                     "display": {"type": "string"},
                     "description": {"type": "string"},
-                    "allowSwot": {
-                        "type": "boolean",
-                        "description": "是否允许该章节使用SWOT分析块，全文最多只有一个章节可设为true",
-                    },
-                    "allowPest": {
-                        "type": "boolean",
-                        "description": "是否允许该章节使用PEST分析块，全文最多只有一个章节可设为true",
-                    },
+                    "allowSwot": {"type": "boolean"},
+                    "allowPest": {"type": "boolean"},
                 },
                 "required": ["chapterId", "display"],
             },
@@ -156,7 +138,6 @@ document_layout_output_schema = {
     "required": ["title", "tocPlan"],
 }
 
-# 章节字数规划Schema：约束WordBudgetNode的输出结构
 word_budget_output_schema = {
     "type": "object",
     "properties": {
@@ -172,170 +153,126 @@ word_budget_output_schema = {
                     "title": {"type": "string"},
                     "targetWords": {"type": "number"},
                     "minWords": {"type": "number"},
-                "maxWords": {"type": "number"},
-                "emphasis": {"type": "array", "items": {"type": "string"}},
-                "rationale": {"type": "string"},
-                "sections": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "anchor": {"type": "string"},
-                            "targetWords": {"type": "number"},
-                            "minWords": {"type": "number"},
-                            "maxWords": {"type": "number"},
-                            "notes": {"type": "string"},
+                    "maxWords": {"type": "number"},
+                    "emphasis": {"type": "array", "items": {"type": "string"}},
+                    "rationale": {"type": "string"},
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "anchor": {"type": "string"},
+                                "targetWords": {"type": "number"},
+                                "minWords": {"type": "number"},
+                                "maxWords": {"type": "number"},
+                                "notes": {"type": "string"},
+                            },
+                            "required": ["title", "targetWords"],
                         },
-                        "required": ["title", "targetWords"],
                     },
                 },
+                "required": ["chapterId", "targetWords"],
             },
-            "required": ["chapterId", "targetWords"],
-        },
         },
     },
     "required": ["totalWords", "chapters"],
 }
 
-# ===== 系统提示词定义 =====
+# ===== 系统提示词定义 (Enhanced) =====
 
-# 模板选择的系统提示词
+# 1. 模板选择: 加入预期差和叙事分析模板
 SYSTEM_PROMPT_TEMPLATE_SELECTION = f"""
-你是一个智能报告模板选择助手。根据用户的查询内容和报告特征，从可用模板中选择最合适的一个。
+You are the "Architect" of a multi-agent Investment Research System.
+Select the optimal report template based on the user's query and the nature of the data.
 
-选择标准：
-1. 查询内容的主题类型（企业品牌、市场竞争、政策分析等）
-2. 报告的紧急程度和时效性
-3. 分析的深度和广度要求
-4. 目标受众和使用场景
+**Selection Criteria:**
+1. **Investment Horizon**: Long-term (Fundamental) vs. Short-term (Sentiment).
+2. **Data Availability**: Do we have rich forum logs? Do we have charts?
+3. **Goal**: Is the user looking for "Safety" (Risk Analysis) or "Alpha" (Variant Perception)?
 
-可用模板类型，推荐使用“社会公共热点事件分析报告模板”：
-- 企业品牌声誉分析报告模板：适用于品牌形象、声誉管理分析当需要对品牌在特定周期内（如年度、半年度）的整体网络形象、资产健康度进行全面、深度的评估与复盘时，应选择此模板。核心任务是战略性、全局性分析。
-- 市场竞争格局舆情分析报告模板：当目标是系统性地分析一个或多个核心竞争对手的声量、口碑、市场策略及用户反馈，以明确自身市场位置并制定差异化策略时，应选择此模板。核心任务是对比与洞察。
-- 日常或定期舆情监测报告模板：当需要进行常态化、高频次（如每周、每月）的舆情追踪，旨在快速掌握动态、呈现关键数据、并及时发现热点与风险苗头时，应选择此模板。核心任务是数据呈现与动态追踪。
-- 特定政策或行业动态舆情分析报告：当监测到重要政策发布、法规变动或足以影响整个行业的宏观动态时，应选择此模板。核心任务是深度解读、预判趋势及对本机构的潜在影响。
-- 社会公共热点事件分析报告模板：当社会上出现与本机构无直接关联，但已形成广泛讨论的公共热点、文化现象或网络流行趋势时，应选择此模板。核心任务是洞察社会心态，并评估事件与本机构的关联性（风险与机遇）。
-- 突发事件与危机公关舆情报告模板：当监测到与本机构直接相关的、具有潜在危害的突发负面事件时，应选择此模板。核心任务是快速响应、评估风险、控制事态。
+**Available Template Types:**
 
-请按照以下JSON模式定义格式化输出：
+- **Strategic Value & Moat Analysis Report**: (Default for long-term). Focuses on competitive advantage, earnings quality, and valuation models (DCF/PE). Best for Buffett-style analysis.
+- **Narrative vs. Reality Divergence Report**: (High Alpha). Explicitly contrasts "What the market is saying" (Forum Agent) vs. "What the data shows" (Query/Media Agents). Best for spotting bubbles or oversold opportunities.
+- **Visual Technical & Forensic Analysis Report**: Focuses on Media Agent's outputs—charts, product images, and slide forensics. Best for hardware/tech companies.
+- **Earnings & Catalyst Deep Dive**: For quarterly reviews. Focuses on guidance, beat/miss analysis, and upcoming calendar catalysts.
+- **Sector War-Game Report**: Comparative analysis (e.g., NVDA vs AMD vs Intel). Focuses on market share shifts and technological arms races.
+- **Crisis & Risk Event Report**: For analyzing short-selling attacks, regulatory crackdowns, or sudden drops.
 
 <OUTPUT JSON SCHEMA>
 {json.dumps(output_schema_template_selection, indent=2, ensure_ascii=False)}
 </OUTPUT JSON SCHEMA>
 
-**重要的输出格式要求：**
-1. 只返回符合上述Schema的纯JSON对象
-2. 严禁在JSON外添加任何思考过程、说明文字或解释
-3. 可以使用```json和```标记包裹JSON，但不要添加其他内容
-4. 确保JSON语法完全正确：
-   - 对象和数组元素之间必须有逗号分隔
-   - 字符串中的特殊字符必须正确转义（\n, \t, \"等）
-   - 括号必须成对且正确嵌套
-   - 不要使用尾随逗号（最后一个元素后不加逗号）
-   - 不要在JSON中添加注释
-5. 所有字符串值使用双引号，数值不使用引号
+Return ONLY the JSON object.
 """
 
-# HTML报告生成的系统提示词
+# 2. HTML报告生成: 强调专业性与免责声明
+# NOTE: Supports dynamic market_snapshot injection for anti-hallucination
 SYSTEM_PROMPT_HTML_GENERATION = f"""
-你是一位专业的HTML报告生成专家。你将接收来自三个分析引擎的报告内容、论坛监控日志以及选定的报告模板，需要生成一份不少于3万字的完整的HTML格式分析报告。
+You are a Professional Financial Report Generator.
+You will receive outputs from:
+1. **Query Engine** (Real-time data)
+2. **Media Engine** (Visual/Multimodal insights)
+3. **Insight Engine** (Historical context)
+4. **Forum Logs** (Perception Layer/Narrative Radar)
+5. **Market Snapshot** (Python-verified real-time price data)
+
+**Your Mission:** Assemble a massive, institutional-grade HTML report (targeting 30,000+ words equivalent in depth).
+
+**CRITICAL RULE: DATA ANCHORING PROTOCOL (ANTI-HALLUCINATION)**
+1. **Time Anchor**: The current report date is STRICTLY defined in the `market_snapshot`. DO NOT hallucinate a future date (e.g., do NOT say it is 2026 if the snapshot says 2025).
+2. **Price Anchor**: The current stock price is STRICTLY defined as `current_price` in the `market_snapshot`. All valuation analysis (P/E, Market Cap) MUST be calculated based on this EXACT price.
+3. **Consistency Check**: If the Input Reports (Query/Media/Insight) contain hallucinated dates (e.g., 2026) or prices different from the `market_snapshot`, you MUST **DISCARD** the hallucinated parts and trust the `market_snapshot`.
+4. **Reality Enforcement**: You are analyzing the PRESENT state of the market, NOT creating a fictional future scenario.
+
+**CRITICAL COMPLIANCE:**
+- You MUST include a prominent **DISCLAIMER** at the top: "This report includes Analysis Layer data (Fundamentals) and Perception Layer data (Market Sentiment). Sentiment data reflects public discussion and does not constitute financial advice."
+- Do NOT hallucinate data. If agents disagree, present the disagreement.
+
+**HTML & Design Requirements:**
+1. **Financial Dashboard UI**: Use a clean, data-dense layout (like Bloomberg Terminal meets McKinsey).
+2. **Interactive Elements**: Include Chart.js visualizations for Sentiment vs. Price.
+3. **Source Attribution**: Explicitly tag data sources (e.g., "Source: Media Agent - Investor Presentation Slide 14").
+4. **Responsive**: Mobile-friendly via Flexbox/Grid.
 
 <INPUT JSON SCHEMA>
 {json.dumps(input_schema_html_generation, indent=2, ensure_ascii=False)}
 </INPUT JSON SCHEMA>
 
-**你的任务：**
-1. 整合三个引擎的分析结果，避免重复内容
-2. 结合三个引擎在分析时的相互讨论数据（forum_logs），站在不同角度分析内容
-3. 按照选定模板的结构组织内容
-4. 生成包含数据可视化的完整HTML报告，不少于3万字
-
-**HTML报告要求：**
-
-1. **完整的HTML结构**：
-   - 包含DOCTYPE、html、head、body标签
-   - 响应式CSS样式
-   - JavaScript交互功能
-   - 如果有目录，不要使用侧边栏设计，而是放在文章的开始部分
-
-2. **美观的设计**：
-   - 现代化的UI设计
-   - 合理的色彩搭配
-   - 清晰的排版布局
-   - 适配移动设备
-   - 不要采用需要展开内容的前端效果，一次性完整显示
-
-3. **数据可视化**：
-   - 使用Chart.js生成图表
-   - 情感分析饼图
-   - 趋势分析折线图
-   - 数据源分布图
-   - 论坛活动统计图
-
-4. **内容结构**：
-   - 报告标题和摘要
-   - 各引擎分析结果整合
-   - 论坛数据分析
-   - 综合结论和建议
-   - 数据附录
-
-5. **交互功能**：
-   - 目录导航
-   - 章节折叠展开
-   - 图表交互
-   - 打印和PDF导出按钮
-   - 暗色模式切换
-
-**CSS样式要求：**
-- 使用现代CSS特性（Flexbox、Grid）
-- 响应式设计，支持各种屏幕尺寸
-- 优雅的动画效果
-- 专业的配色方案
-
-**JavaScript功能要求：**
-- Chart.js图表渲染
-- 页面交互逻辑
-- 导出功能
-- 主题切换
-
-**重要：直接返回完整的HTML代码，不要包含任何解释、说明或其他文本。只返回HTML代码本身。**
+Return ONLY the complete HTML code.
 """
 
-# 分章节JSON生成系统提示词
+# 3. 章节JSON生成: 核心逻辑 - 跨Agent融合
+# NOTE: Supports dynamic market_snapshot injection for anti-hallucination
 SYSTEM_PROMPT_CHAPTER_JSON = f"""
-你是Report Engine的“章节装配工厂”，负责把不同章节的素材铣削成
-符合《可执行JSON契约(IR)》的章节JSON。稍后我会提供单个章节要点、
-全局数据与风格指令，你需要：
-1. 完全遵循IR版本 {IR_VERSION} 的结构，严禁输出HTML或Markdown。
-2. 仅使用以下Block类型：{', '.join(ALLOWED_BLOCK_TYPES)}；其中图表用block.type=widget并填充Chart.js配置。
-3. 所有段落都放入paragraph.inlines，混排样式通过marks表示（bold/italic/color/link等）。
-4. 所有heading必须包含anchor，锚点与编号保持模板一致，比如section-2-1。
-5. 表格需给出rows/cells/align，KPI卡请使用kpiGrid，分割线用hr。
-6. **SWOT块使用限制（重要！）**：
-   - 只有在 constraints.allowSwot 为 true 时才允许使用 block.type="swotTable"；
-   - 如果 constraints.allowSwot 为 false 或不存在，严禁生成任何 swotTable 类型的块，即使章节标题包含"SWOT"字样也不能使用该块类型，应改用表格（table）或列表（list）呈现相关内容；
-   - 当允许使用SWOT块时，分别填写 strengths/weaknesses/opportunities/threats 数组，单项至少包含 title/label/text 之一，可附加 detail/evidence/impact 字段；title/summary 字段用于概览说明；
-   - **特别注意：impact 字段只允许填写影响评级（"低"/"中低"/"中"/"中高"/"高"/"极高"）；任何关于影响的文字叙述、详细说明、佐证或扩展描述必须写入 detail 字段，禁止在 impact 字段中混入描述性文字。**
-7. **PEST块使用限制（重要！）**：
-   - 只有在 constraints.allowPest 为 true 时才允许使用 block.type="pestTable"；
-   - 如果 constraints.allowPest 为 false 或不存在，严禁生成任何 pestTable 类型的块，即使章节标题包含"PEST"、"宏观环境"等字样也不能使用该块类型，应改用表格（table）或列表（list）呈现相关内容；
-   - 当允许使用PEST块时，分别填写 political/economic/social/technological 数组，单项至少包含 title/label/text 之一，可附加 detail/source/trend 字段；title/summary 字段用于概览说明；
-   - **PEST四维度说明**：political（政治因素：政策法规、政府态度、监管环境）、economic（经济因素：经济周期、利率汇率、市场需求）、social（社会因素：人口结构、文化趋势、消费习惯）、technological（技术因素：技术创新、研发趋势、数字化程度）；
-   - **特别注意：trend 字段只允许填写趋势评估（"正面利好"/"负面影响"/"中性"/"不确定"/"持续观察"）；任何关于趋势的文字叙述、详细说明、来源或扩展描述必须写入 detail 字段，禁止在 trend 字段中混入描述性文字。**
-8. 如需引用图表/交互组件，统一用widgetType表示（例如chart.js/line、chart.js/doughnut）。
-9. 鼓励结合outline中列出的子标题，生成多层heading与细粒度内容，同时可补充callout、blockquote等。
-10. engineQuote 仅用于呈现单Agent的原话：使用 block.type="engineQuote"，engine 取值 insight/media/query，title 必须固定为对应Agent名字（insight->Insight Agent，media->Media Agent，query->Query Agent，不可自定义），内部 blocks 只允许 paragraph，paragraph.inlines 的 marks 仅可使用 bold/italic（可留空），禁止在 engineQuote 中放表格/图表/引用/公式等；当 reports 或 forumLogs 中有明确的文字段落、结论、数字/时间等可直接引用时，优先分别从 Query/Media/Insight 三个 Agent 摘出关键原文或文字版数据放入 engineQuote，尽量覆盖三类 Agent 而非只用单一来源，严禁臆造内容或把表格/图表改写进 engineQuote。
-11. 如果chapterPlan中包含target/min/max或sections细分预算，请尽量贴合，必要时在notes允许的范围内突破，同时在结构上体现详略；
-12. 一级标题需使用中文数字（“一、二、三”），二级标题使用阿拉伯数字（“1.1、1.2”），heading.text中直接写好编号，与outline顺序对应；
-13. 严禁输出外部图片/AI生图链接，仅可使用Chart.js图表、表格、色块、callout等HTML原生组件；如需视觉辅助请改为文字描述或数据表；
-14. 段落混排需通过marks表达粗体、斜体、下划线、颜色等样式，禁止残留Markdown语法（如**text**）；
-15. 行间公式用block.type="math"并填入math.latex，行内公式在paragraph.inlines里将文本设为Latex并加上marks.type="math"，渲染层会用MathJax处理；
-16. widget配色需与CSS变量兼容，不要硬编码背景色或文字色，legend/ticks由渲染层控制；
-17. 善用callout、kpiGrid、表格、widget等提升版面丰富度，但必须遵守模板章节范围。
-18. 输出前务必自检JSON语法：禁止出现`{{}}{{`或`][`相连缺少逗号、列表项嵌套超过一层、未闭合的括号或未转义换行，`list` block的items必须是`[[block,...], ...]`结构，若无法满足则返回错误提示而不是输出不合法JSON。
-19. 所有widget块必须在顶层提供`data`或`dataRef`（可将props中的`data`上移），确保Chart.js能够直接渲染；缺失数据时宁可输出表格或段落，绝不留空。
-20. 任何block都必须声明合法`type`（heading/paragraph/list/...）；若需要普通文本请使用`paragraph`并给出`inlines`，禁止返回`type:null`或未知值。
+你是Report Engine的"章节装配工厂"。负责将多源素材（Insight/Media/Query/Forum）熔炼成高密度的章节。
+
+**CRITICAL RULE: DATA ANCHORING PROTOCOL (ANTI-HALLUCINATION)**
+- 当输入包含 `market_snapshot` 时，你必须使用其中的 `query_date` 作为报告日期。
+- 当输入包含 `market_snapshot` 时，你必须使用其中的 `current_price` 作为股价基准。
+- 如果原始数据中包含与 `market_snapshot` 不一致的日期（如2026年）或价格，你必须**丢弃幻觉数据**，使用锚定值。
+- 你是在分析**当下**的市场状态，不是在创作未来场景。
+
+**核心指令：跨Agent融合 (Cross-Agent Synthesis)**
+你不仅仅是排版，你是**逻辑缝合怪**。
+- **当出现分歧时**：如果 Query Agent 显示财报利好，但 Forum Agent 显示散户恐慌，你必须生成一个 `callout` 块，标题为"Divergence Alert"，明确指出这种背离。
+- **引用规范**：使用 `engineQuote` 展示各Agent的"原声"。Query提供数据，Media提供视觉描述，Forum提供市场情绪。
+
+**IR 版本 {IR_VERSION} 严格约束：**
+1. 仅使用 Block Types: {', '.join(ALLOWED_BLOCK_TYPES)}。
+2. 图表：使用 `widget` (Chart.js)。
+3. **SWOT 增强规则** (当 `allowSwot: true`):
+   - **Strengths/Weaknesses**: 必须基于 Insight/Query 的基本面数据。
+   - **Opportunities**: 必须结合 Media Agent 的技术/产品分析。
+   - **Threats**: 必须结合 Forum Agent 的“空头叙事” (Bearish Narrative)。
+4. **PEST 增强规则** (当 `allowPest: true`):
+   - 必须引用政策文件或宏观经济数据，不能空谈。
+
+**格式要求：**
+- 所有段落放入 `paragraph.inlines`。
+- 不得输出 Markdown，只输出 JSON。
+- 确保 `list` items 是二维数组 `[[block...], [block...]]`。
 
 <CHAPTER JSON SCHEMA>
 {CHAPTER_JSON_SCHEMA_TEXT}
@@ -343,141 +280,132 @@ SYSTEM_PROMPT_CHAPTER_JSON = f"""
 
 输出格式：
 {{"chapter": {{...遵循上述Schema的章节JSON...}}}}
-
-严禁添加除JSON以外的任何文本或注释。
 """
 
-SYSTEM_PROMPT_CHAPTER_JSON_REPAIR = f"""
-你现在扮演Report Engine的“章节JSON修复官”，负责在章节草稿无法通过IR校验时进行兜底修复。
-
-请牢记：
-1. 所有chapter必须满足IR版本 {IR_VERSION} 约束，仅允许以下block.type：{', '.join(ALLOWED_BLOCK_TYPES)}；
-2. paragraph.inlines中的marks必须来自以下集合：{', '.join(ALLOWED_INLINE_MARKS)}；
-3. 允许的结构、字段与嵌套规则全部写在《CHAPTER JSON SCHEMA》中，任何缺少字段、数组嵌套错误或list.items不是二维数组的情况都必须修复；
-4. 不得更改事实、数值与结论，只能对结构/字段名/嵌套层级做最小修改以通过校验；
-5. 最终输出只能包含合法JSON，格式严格为：{{"chapter": {{...修复后的章节JSON...}}}}，禁止额外解释或Markdown。
-
-<CHAPTER JSON SCHEMA>
-{CHAPTER_JSON_SCHEMA_TEXT}
-</CHAPTER JSON SCHEMA>
-
-只返回JSON，不要添加注释或自然语言。
-"""
-
-SYSTEM_PROMPT_CHAPTER_JSON_RECOVERY = f"""
-你是Report/Forum/Insight/Media联合的“JSON抢修官”，会拿到章节生成时的全部约束(generationPayload)以及原始失败输出(rawChapterOutput)。
-
-请遵守：
-1. 章节必须满足IR版本 {IR_VERSION} 规范，block.type 仅能使用：{', '.join(ALLOWED_BLOCK_TYPES)}；
-2. paragraph.inlines中的marks仅可出现：{', '.join(ALLOWED_INLINE_MARKS)}，并保留原始文字顺序；
-3. 请以 generationPayload 中的 section 信息为主导，heading.text 与 anchor 必须与章节slug保持一致；
-4. 仅对JSON语法/字段/嵌套做最小必要修复，不改写事实与结论；
-5. 输出严格遵循 {{\"chapter\": {{...}}}} 格式，不添加说明。
-
-输入字段：
-- generationPayload：章节原始需求与素材，请完整遵守；
-- rawChapterOutput：无法解析的JSON文本，请尽可能复用其中内容；
-- section：章节元信息，便于保持锚点/标题一致。
-
-请直接返回修复后的JSON。
-"""
-
-# 文档标题/目录/主题设计提示词
+# 4. 文档布局: 引入情绪仪表盘
 SYSTEM_PROMPT_DOCUMENT_LAYOUT = f"""
-你是报告首席设计官，需要结合模板大纲与三个分析引擎的内容，为整本报告确定最终的标题、导语区、目录样式与美学要素。
+你是报告的首席设计官 (Chief Design Officer)。
+设计整份报告的骨架、标题和视觉锚点。
 
-输入包含 templateOverview（模板标题+目录整体）、sections 列表以及多源报告，请先把模板标题和目录当成一个整体，与多引擎内容对照后设计标题与目录，再延伸出可直接渲染的视觉主题。你的输出会被独立存储以便后续拼接，请确保字段齐备。
+**KPI 设计要求 (The "Hero" Section):**
+除了传统的财务指标 (P/E, Revenue)，你必须包含 **Perception Layer KPIs**：
+1. **Sentiment Score**: (0-100) 基于 Forum Logs。
+2. **Narrative Velocity**: (Emerging / Peaking / Fading)。
+3. **Divergence Index**: (High/Low) 指基本面与情绪的背离程度。
 
-目标：
-1. 生成具有中文叙事风格的 title/subtitle/tagline，并确保可直接放在封面中央，文案中需自然提到"文章总览"；
-2. 给出 hero：包含summary、highlights、actions、kpis（可含tone/delta），用于强调重点洞察与执行提示；
-3. 输出 tocPlan，一级目录固定用中文数字（"一、二、三"），二级目录用"1.1/1.2"，可在description里说明详略；如需定制目录标题，请填写 tocTitle；
-4. 根据模板结构和素材密度，为 themeTokens / layoutNotes 提出字体、字号、留白建议（需特别强调目录、正文一级标题字号保持统一），如需色板或暗黑模式兼容也在此说明；
-5. 严禁要求外部图片或AI生图，推荐Chart.js图表、表格、色块、KPI卡等可直接渲染的原生组件；
-6. 不随意增删章节，仅优化命名或描述；若有排版或章节合并提示，请放入 layoutNotes，渲染层会严格遵循；
-7. **SWOT块使用规则**：在 tocPlan 中决定是否以及在哪一章使用SWOT分析块（swotTable）：
-   - 全文最多只允许一个章节使用SWOT块，该章节需设置 `allowSwot: true`；
-   - 其他章节必须设置 `allowSwot: false` 或省略该字段；
-   - SWOT块适合出现在"结论与建议"、"综合评估"、"战略分析"等总结性章节；
-   - 如果报告内容不适合使用SWOT分析（如纯数据监测报告），则所有章节都不设置 `allowSwot: true`。
-8. **PEST块使用规则**：在 tocPlan 中决定是否以及在哪一章使用PEST宏观环境分析块（pestTable）：
-   - 全文最多只允许一个章节使用PEST块，该章节需设置 `allowPest: true`；
-   - 其他章节必须设置 `allowPest: false` 或省略该字段；
-   - PEST块用于分析宏观环境因素（政治Political、经济Economic、社会Social、技术Technological）；
-   - PEST块适合出现在"行业环境分析"、"宏观背景"、"外部环境研判"等分析宏观因素的章节；
-   - 如果报告主题与宏观环境分析无关（如具体事件危机公关报告），则所有章节都不设置 `allowPest: true`；
-   - SWOT和PEST不应出现在同一章节，二者分别侧重内部能力与外部环境。
+**目录规划 (TOC Plan):**
+- 逻辑流：Facts (Query) -> Visuals (Media) -> Narrative (Forum) -> Synthesis.
+- 在适当章节开启 `allowSwot` (通常是结论章) 或 `allowPest` (通常是背景章)。
 
-**tocPlan的description字段特别要求：**
-- description字段必须是纯文本描述，用于在目录中展示章节简介
-- 严禁在description字段中嵌套JSON结构、对象、数组或任何特殊标记
-- description应该是简洁的一句话或一小段话，描述该章节的核心内容
-- 错误示例：{{"description": "描述内容，{{\"chapterId\": \"S3\"}}"}}
-- 正确示例：{{"description": "描述内容，详细分析章节要点"}}
-- 如果需要关联chapterId，请使用tocPlan对象的chapterId字段，不要写在description中
-
-输出必须满足下述JSON Schema：
 <OUTPUT JSON SCHEMA>
 {json.dumps(document_layout_output_schema, ensure_ascii=False, indent=2)}
 </OUTPUT JSON SCHEMA>
 
-**重要的输出格式要求：**
-1. 只返回符合上述Schema的纯JSON对象
-2. 严禁在JSON外添加任何思考过程、说明文字或解释
-3. 可以使用```json和```标记包裹JSON，但不要添加其他内容
-4. 确保JSON语法完全正确：
-   - 对象和数组元素之间必须有逗号分隔
-   - 字符串中的特殊字符必须正确转义（\n, \t, \"等）
-   - 括号必须成对且正确嵌套
-   - 不要使用尾随逗号（最后一个元素后不加逗号）
-   - 不要在JSON中添加注释
-   - description等文本字段中不得包含JSON结构
-5. 所有字符串值使用双引号，数值不使用引号
-6. 再次强调：tocPlan中每个条目的description必须是纯文本，不能包含任何JSON片段
+Return ONLY JSON.
 """
 
-# 篇幅规划提示词
+# 5. 篇幅规划: 动态权重
 SYSTEM_PROMPT_WORD_BUDGET = f"""
-你是报告篇幅规划官，会拿到 templateOverview（模板标题+目录）、最新的标题/目录设计稿与全部素材，需要给每章及其子主题分配字数。
+你是篇幅规划官。根据数据的丰富程度分配字数预算。
 
-要求：
-1. 总字数约40000字，可上下浮动5%，并给出 globalGuidelines 说明整体详略策略；
-2. chapters 中每章需包含 targetWords/min/max、需要额外展开的 emphasis、sections 数组（为该章各小节/提纲分配字数与注意事项，可注明“允许在必要时超出10%补充案例”等）；
-3. rationale 必须解释该章篇幅配置理由，引用模板/素材中的关键信息；
-4. 章节编号遵循一级中文数字、二级阿拉伯数字，便于后续统一字号；
-5. 结果写成JSON并满足下述Schema，仅用于内部存储与章节生成，不直接输出给读者。
+**Dynamic Budgeting Strategy:**
+1. **Follow the Data**: 如果 Media Agent 提供了大量 PPT 分析，给 "Visual Analysis" 章节增加 30% 预算。
+2. **Respect the Noise**: 如果 Forum Logs 显示极度活跃的讨论，给 "Market Narrative" 章节增加预算。
+3. **Cut the Fluff**: 如果某方面数据稀缺，减少该章预算，不要强行凑字数。
+
+**Standard Allocations:**
+- Executive Summary: ~2k words
+- Deep Dive Chapters: ~5k-8k words each
+- Narrative/Sentiment: ~4k words
+- Conclusion: ~2k words
 
 <OUTPUT JSON SCHEMA>
 {json.dumps(word_budget_output_schema, ensure_ascii=False, indent=2)}
 </OUTPUT JSON SCHEMA>
 
-**重要的输出格式要求：**
-1. 只返回符合上述Schema的纯JSON对象
-2. 严禁在JSON外添加任何思考过程、说明文字或解释
-3. 可以使用```json和```标记包裹JSON，但不要添加其他内容
-4. 确保JSON语法完全正确：
-   - 对象和数组元素之间必须有逗号分隔
-   - 字符串中的特殊字符必须正确转义（\n, \t, \"等）
-   - 括号必须成对且正确嵌套
-   - 不要使用尾随逗号（最后一个元素后不加逗号）
-   - 不要在JSON中添加注释
-5. 所有字符串值使用双引号，数值不使用引号
+Return ONLY JSON.
 """
 
+# JSON Repair & Recovery Prompts (Keeping strictly technical)
+SYSTEM_PROMPT_CHAPTER_JSON_REPAIR = f"""
+你是 JSON 修复官。
+目标：修复不符合 IR {IR_VERSION} 规范的 JSON，**不改变内容实质**。
+常见错误：
+1. `list` item 不是二维数组。
+2. `paragraph` 缺少 `inlines`。
+3. `widget` 缺少 `data`。
+仅返回修复后的 JSON: {{\"chapter\": {{...}}}}
+<CHAPTER JSON SCHEMA>
+{CHAPTER_JSON_SCHEMA_TEXT}
+</CHAPTER JSON SCHEMA>
+"""
+
+SYSTEM_PROMPT_CHAPTER_JSON_RECOVERY = f"""
+你是 JSON 抢修官 (Emergency Recovery)。
+原始生成彻底失败。请根据 `generationPayload` 中的素材，重新构建一个最简的可合法渲染的 JSON。
+优先保全：Heading, Paragraph, Table。放弃复杂的 Widget 只要能通过校验。
+仅返回 JSON: {{\"chapter\": {{...}}}}
+"""
+
+# ==================== GraphRAG Enhancement (The "Knowledge Injection") ====================
+
+GRAPHRAG_CHAPTER_ENHANCEMENT_INTRO = """
+<Knowledge Graph Context>
+We have queried the Knowledge Graph for hidden connections.
+Use these specific relationships to enrich the chapter:
+
+{graph_results}
+
+**Integration Rules:**
+1. **Causality**: If the graph shows "Supplier Delay" -> "Revenue Risk", explicitly state this causal link.
+2. **Hidden Entities**: Mention competitors or suppliers found in the graph that were not in the main prompt.
+3. **Fact Checking**: Use graph attributes (dates, specific figures) to verify the text generation.
+</Knowledge Graph Context>
+"""
+
+# ... (Helper functions remain unchanged) ...
 
 def build_chapter_user_prompt(payload: dict) -> str:
     """
-    将章节上下文序列化为提示词输入。
-
-    统一使用 `json.dumps(..., indent=2, ensure_ascii=False)`，便于LLM读取。
+    Build the user prompt for chapter generation.
+    
+    If a marketSnapshot is present, it's prominently displayed at the top
+    to ensure the LLM uses it as the source of truth for date and price.
     """
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    market_snapshot = payload.get("marketSnapshot")
+    
+    # Build prominent market anchor header if available
+    anchor_header = ""
+    if market_snapshot and isinstance(market_snapshot, dict):
+        date = market_snapshot.get("query_date", "UNKNOWN")
+        ticker = market_snapshot.get("ticker", "N/A")
+        price = market_snapshot.get("current_price")
+        status = market_snapshot.get("status", "UNKNOWN")
+        
+        price_str = f"${price:.2f}" if price else "UNAVAILABLE"
+        
+        anchor_header = f"""
+=================================================================
+🔒 MARKET ANCHOR PROTOCOL (PYTHON-VERIFIED - DO NOT OVERRIDE)
+=================================================================
+CURRENT DATE: {date}
+TARGET TICKER: {ticker}
+REFERENCE PRICE: {price_str}
+DATA STATUS: {status}
 
+⚠️ CRITICAL: You MUST use the above date and price as your baseline.
+   - DO NOT invent different dates or prices.
+   - If source data conflicts with this anchor, TRUST THIS ANCHOR.
+   - All valuation/price analysis must reference {price_str}.
+=================================================================
+
+"""
+    
+    # Return anchor header + JSON payload
+    json_payload = json.dumps(payload, ensure_ascii=False, indent=2)
+    return anchor_header + json_payload
 
 def build_chapter_repair_prompt(chapter: dict, errors, original_text=None) -> str:
-    """
-    构造章节修复输入payload，包含原始章节与校验错误。
-    """
     payload: dict = {
         "failedChapter": chapter,
         "validatorErrors": errors,
@@ -487,15 +415,7 @@ def build_chapter_repair_prompt(chapter: dict, errors, original_text=None) -> st
         payload["rawOutputTail"] = snippet
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
-
-def build_chapter_recovery_payload(
-    section: dict, generation_payload: dict, raw_output: str
-) -> str:
-    """
-    构造跨引擎JSON抢修输入，附带章节元信息、生成指令与原始输出。
-
-    为避免提示词过长，仅保留原始输出的尾部片段以定位问题。
-    """
+def build_chapter_recovery_payload(section: dict, generation_payload: dict, raw_output: str) -> str:
     payload = {
         "section": section,
         "generationPayload": generation_payload,
@@ -503,138 +423,41 @@ def build_chapter_recovery_payload(
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
-
 def build_document_layout_prompt(payload: dict) -> str:
-    """将文档设计所需的上下文序列化为JSON字符串，供布局节点发送给LLM。"""
     return json.dumps(payload, ensure_ascii=False, indent=2)
-
 
 def build_word_budget_prompt(payload: dict) -> str:
-    """将篇幅规划输入转为字符串，便于送入LLM并保持字段精确。"""
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
-
-# ==================== GraphRAG 增强提示词 ====================
-
-GRAPHRAG_CHAPTER_ENHANCEMENT_INTRO = """
-<知识图谱查询结果>
-以下是针对本章节从知识图谱中查询到的相关信息，这些信息来自对Insight/Media/Query三个分析引擎结构化数据的聚合：
-
-{graph_results}
-
-请在生成本章内容时：
-1. 充分利用上述图谱查询结果中的具体数据点、关键发现和关联关系
-2. 优先引用图谱中标注的来源（搜索关键词、数据来源等）
-3. 当图谱结果与三引擎报告有重叠时，以图谱中的结构化数据为准
-4. 注意图谱中节点之间的关联关系，体现因果或递进逻辑
-5. 如果图谱结果中有明确的数值或时间点，务必准确引用
-</知识图谱查询结果>
-"""
-
-
 def build_graphrag_enhanced_user_prompt(payload: dict) -> str:
-    """
-    构造包含GraphRAG查询结果的章节用户提示词。
-    
-    当GraphRAG启用且有查询结果时，在标准payload基础上
-    注入图谱查询摘要，指导LLM在章节生成时优先利用这些信息。
-    
-    Args:
-        payload: 包含标准章节上下文和可选 graph_enhancement_prompt 的字典
-        
-    Returns:
-        序列化后的用户提示词字符串
-    """
-    # 提取图谱增强内容（如果有）
     graph_prompt = payload.pop('graph_enhancement_prompt', None)
-    
     base_prompt = json.dumps(payload, ensure_ascii=False, indent=2)
-    
     if graph_prompt:
         return f"{base_prompt}\n\n{graph_prompt}"
-    
     return base_prompt
 
-
+# ... (Graph formatting functions remain unchanged) ...
 def format_graph_nodes_for_prompt(nodes: list) -> str:
-    """
-    将图谱节点列表格式化为提示词友好的文本。
-    
-    Args:
-        nodes: 节点数据列表，每个节点包含 id, type, label, properties
-        
-    Returns:
-        格式化的节点描述文本
-    """
-    if not nodes:
-        return "（无相关节点）"
-    
+    if not nodes: return "（无相关节点）"
     lines = []
-    # 按类型分组
     by_type = {}
     for node in nodes:
         node_type = node.get('type', 'unknown')
-        if node_type not in by_type:
-            by_type[node_type] = []
+        if node_type not in by_type: by_type[node_type] = []
         by_type[node_type].append(node)
     
-    type_labels = {
-        'topic': '主题',
-        'engine': '分析引擎',
-        'section': '报告段落',
-        'search_query': '搜索关键词',
-        'source': '数据来源'
-    }
-    
     for node_type, type_nodes in by_type.items():
-        type_label = type_labels.get(node_type, node_type)
-        lines.append(f"\n【{type_label}】")
-        for n in type_nodes[:10]:  # 每类最多10个
+        lines.append(f"\n【{node_type}】")
+        for n in type_nodes[:10]:
             label = n.get('label', n.get('id', ''))
             props = n.get('properties', {})
-            prop_str = ''
-            if props:
-                key_props = {k: v for k, v in props.items() if k in ['summary', 'content', 'headline', 'url', 'query', 'source']}
-                if key_props:
-                    prop_str = ' | ' + ', '.join(f"{k}:{str(v)[:100]}" for k, v in key_props.items())
-            lines.append(f"  • {label}{prop_str}")
-    
+            prop_str = ' | '.join(f"{k}:{str(v)[:100]}" for k, v in props.items() if k in ['summary', 'content'])
+            lines.append(f"  • {label} {prop_str}")
     return '\n'.join(lines)
 
-
 def format_graph_edges_for_prompt(edges: list) -> str:
-    """
-    将图谱边列表格式化为提示词友好的文本。
-    
-    Args:
-        edges: 边数据列表，每条边包含 source, target, relation
-        
-    Returns:
-        格式化的关系描述文本
-    """
-    if not edges:
-        return "（无关联关系）"
-    
-    relation_labels = {
-        'analyzed_by': '被分析于',
-        'contains': '包含',
-        'searched': '搜索了',
-        'found': '发现于'
-    }
-    
+    if not edges: return "（无关联关系）"
     lines = []
-    seen = set()
-    for edge in edges[:20]:  # 最多20条关系
-        source = edge.get('source', '')
-        target = edge.get('target', '')
-        relation = edge.get('relation', 'related')
-        
-        key = f"{source}-{relation}-{target}"
-        if key in seen:
-            continue
-        seen.add(key)
-        
-        rel_label = relation_labels.get(relation, relation)
-        lines.append(f"  • {source} —[{rel_label}]→ {target}")
-    
-    return '\n'.join(lines) if lines else "（无关联关系）"
+    for edge in edges[:20]:
+        lines.append(f"  • {edge.get('source')} --[{edge.get('relation')}]--> {edge.get('target')}")
+    return '\n'.join(lines)

@@ -354,6 +354,9 @@ class ChapterGenerationNode(BaseNode):
             },
             "chapterPlan": chapter_plan,
             "wordPlan": context.get("word_plan"),
+            # Anti-hallucination: Python-verified market data anchor
+            # The LLM MUST use this as the source of truth for date and stock price
+            "marketSnapshot": context.get("market_snapshot"),
         }
         
         # GraphRAG 增强：如果上下文中包含图谱查询结果，添加到payload
