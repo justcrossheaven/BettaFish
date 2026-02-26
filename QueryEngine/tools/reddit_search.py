@@ -6,7 +6,7 @@ Last Updated: 2026-02-26
 
 This module provides Reddit search capabilities using:
 1. PRAW library (official API) when credentials are available (100 req/min)
-2. Reddit's public JSON API as fallback (no auth needed, 60 req/min)
+2. Arctic Shift API as fallback (free, no auth needed, unlimited)
 
 Key Features:
 - Search posts across multiple subreddits
@@ -203,17 +203,13 @@ def parse_json_submission(post_data: Dict[str, Any]) -> RedditPost:
     )
 
 
+ARCTIC_SHIFT_BASE = "https://arctic-shift.photon-reddit.com/api"
+
+
 def fetch_reddit_json(url: str, params: Optional[Dict] = None, timeout: int = 30) -> Optional[Dict]:
     """
-    Fetch data from Reddit's public JSON API.
-    
-    Args:
-        url: Reddit URL (will append .json if not present)
-        params: Query parameters
-        timeout: Request timeout
-    
-    Returns:
-        JSON response or None on error
+    Fetch data from Reddit's public JSON API (legacy, often blocked by Cloudflare).
+    Prefer fetch_arctic_shift() for reliable access.
     """
     if not url.endswith('.json'):
         url = url.rstrip('/') + '.json'
@@ -234,15 +230,86 @@ def fetch_reddit_json(url: str, params: Optional[Dict] = None, timeout: int = 30
         return None
 
 
+def fetch_arctic_shift(endpoint: str, params: Optional[Dict] = None, timeout: int = 30) -> Optional[Dict]:
+    """
+    Fetch data from Arctic Shift API — a free, no-auth Reddit archive.
+    
+    Endpoints:
+        /posts/search   - Search posts (params: query, subreddit, limit, after, before, sort)
+        /comments/search - Search comments (params: body, subreddit, limit, after, before, sort)
+    
+    Returns:
+        JSON response with 'data' key, or None on error.
+    """
+    url = f"{ARCTIC_SHIFT_BASE}/{endpoint.lstrip('/')}"
+    headers = {
+        'User-Agent': 'BettaFish/1.1 Trade Investment Monitor'
+    }
+    
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[ArcticShift] Request failed for {endpoint}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"[ArcticShift] Parse failed for {endpoint}: {e}")
+        return None
+
+
+def _arctic_post_to_reddit_post(data: Dict) -> RedditPost:
+    """Convert an Arctic Shift post dict to a RedditPost dataclass."""
+    created_utc = data.get('created_utc', 0)
+    created_dt = datetime.utcfromtimestamp(created_utc) if created_utc else None
+    full_text = f"{data.get('title', '')} {data.get('selftext', '')}"
+    
+    return RedditPost(
+        id=data.get('id', ''),
+        title=data.get('title', ''),
+        text=data.get('selftext', '')[:2000],
+        subreddit=data.get('subreddit', ''),
+        author=data.get('author', '[deleted]'),
+        score=data.get('score', 0),
+        upvote_ratio=data.get('upvote_ratio', 0.0),
+        num_comments=data.get('num_comments', 0),
+        created_utc=created_utc,
+        created_at=created_dt.strftime('%Y-%m-%d %H:%M:%S') if created_dt else None,
+        url=f"https://reddit.com{data.get('permalink', '')}",
+        permalink=data.get('permalink', ''),
+        is_self=data.get('is_self', True),
+        flair=data.get('link_flair_text'),
+        mentioned_tickers=extract_tickers(full_text),
+        awards_count=data.get('total_awards_received', 0)
+    )
+
+
+def _arctic_comment_to_reddit_comment(data: Dict) -> 'RedditComment':
+    """Convert an Arctic Shift comment dict to a RedditComment dataclass."""
+    created_utc = data.get('created_utc', 0)
+    created_dt = datetime.utcfromtimestamp(created_utc) if created_utc else None
+    
+    return RedditComment(
+        id=data.get('id', ''),
+        body=data.get('body', '')[:2000],
+        author=data.get('author', '[deleted]'),
+        score=data.get('score', 0),
+        created_utc=created_utc,
+        created_at=created_dt.strftime('%Y-%m-%d %H:%M:%S') if created_dt else None,
+        parent_id=data.get('parent_id', ''),
+        is_submitter=data.get('is_submitter', False)
+    )
+
+
 # --- 3. Reddit Search Client ---
 
 class RedditSearchClient:
     """
     Reddit search client with dual-mode support:
     1. PRAW (official API) when credentials available - 100 req/min, better features
-    2. Public JSON API fallback (no auth) - 60 req/min, limited features
+    2. Arctic Shift API fallback (no auth) - free, no rate limit, archive data
     
-    Automatically falls back to JSON API when credentials not available.
+    Automatically falls back to Arctic Shift when credentials not available.
     
     Features:
     - Search posts across multiple subreddits
@@ -333,42 +400,37 @@ class RedditSearchClient:
         time_filter: str = "week",
         limit: int = 25
     ) -> List[RedditPost]:
-        """Search posts using Reddit's public JSON API (no auth required)."""
+        """Search posts using Arctic Shift API (free, no auth required)."""
         posts = []
         
-        for subreddit in subreddits[:5]:  # Limit to avoid too many requests
+        for subreddit in subreddits[:5]:
             try:
-                url = f"https://www.reddit.com/r/{subreddit}/search.json"
                 params = {
-                    'q': query,
-                    'sort': 'new' if sort == 'relevance' else sort,  # JSON API doesn't support 'relevance'
-                    't': time_filter,
-                    'limit': min(limit, 100),  # Reddit API limit
-                    'restrict_sr': 'on'  # Search within subreddit only
+                    'query': query,
+                    'subreddit': subreddit,
+                    'limit': min(limit, 100),
                 }
                 
-                logger.debug(f"[RedditJSON] Searching r/{subreddit} for '{query}'")
-                data = fetch_reddit_json(url, params)
+                logger.debug(f"[ArcticShift] Searching r/{subreddit} for '{query}'")
+                data = fetch_arctic_shift("posts/search", params)
                 
                 if not data or 'data' not in data:
                     continue
                 
-                children = data['data'].get('children', [])
-                for child in children:
+                for item in data['data']:
                     if len(posts) >= limit:
                         break
                     try:
-                        post = parse_json_submission(child)
+                        post = _arctic_post_to_reddit_post(item)
                         posts.append(post)
                     except Exception as e:
-                        logger.warning(f"[RedditJSON] Failed to parse post: {e}")
+                        logger.warning(f"[ArcticShift] Failed to parse post: {e}")
                         continue
                 
-                # Small delay to avoid rate limiting
-                time.sleep(0.5)
+                time.sleep(0.3)
                 
             except Exception as e:
-                logger.warning(f"[RedditJSON] Failed to search r/{subreddit}: {e}")
+                logger.warning(f"[ArcticShift] Failed to search r/{subreddit}: {e}")
                 continue
         
         return posts
@@ -379,31 +441,32 @@ class RedditSearchClient:
         listing: str = "hot",
         limit: int = 25
     ) -> List[RedditPost]:
-        """Get posts from a subreddit using JSON API."""
+        """Get recent posts from a subreddit using Arctic Shift API."""
         try:
-            url = f"https://www.reddit.com/r/{subreddit}/{listing}.json"
-            params = {'limit': min(limit, 100)}
+            params = {
+                'subreddit': subreddit,
+                'limit': min(limit, 100),
+            }
             
-            logger.debug(f"[RedditJSON] Getting {listing} posts from r/{subreddit}")
-            data = fetch_reddit_json(url, params)
+            logger.debug(f"[ArcticShift] Getting recent posts from r/{subreddit}")
+            data = fetch_arctic_shift("posts/search", params)
             
             if not data or 'data' not in data:
                 return []
             
             posts = []
-            children = data['data'].get('children', [])
-            for child in children[:limit]:
+            for item in data['data'][:limit]:
                 try:
-                    post = parse_json_submission(child)
+                    post = _arctic_post_to_reddit_post(item)
                     posts.append(post)
                 except Exception as e:
-                    logger.warning(f"[RedditJSON] Failed to parse post: {e}")
+                    logger.warning(f"[ArcticShift] Failed to parse post: {e}")
                     continue
             
             return posts
             
         except Exception as e:
-            logger.error(f"[RedditJSON] Failed to get posts: {e}")
+            logger.error(f"[ArcticShift] Failed to get posts: {e}")
             return []
     
     @with_graceful_retry(SEARCH_API_RETRY_CONFIG, default_return=None)
