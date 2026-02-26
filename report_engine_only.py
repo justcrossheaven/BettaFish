@@ -196,6 +196,60 @@ def load_engine_reports(latest_files: Dict[str, str]) -> list[str]:
     return reports
 
 
+def load_state_json_files(latest_files: Dict[str, str]) -> Dict[str, Any]:
+    """
+    加载 State JSON 文件用于 GraphRAG 知识图谱构建
+
+    Args:
+        latest_files: 引擎名称到 MD 文件路径的映射
+
+    Returns:
+        Dict[str, ParsedState]: 引擎名称到解析后状态的映射
+    """
+    from ReportEngine.graphrag import StateParser
+    
+    state_parser = StateParser()
+    loaded_states = {}
+
+    for engine, md_path in latest_files.items():
+        try:
+            # 查找对应的 state JSON 文件
+            state_path = state_parser.find_state_json(md_path)
+            if state_path:
+                parsed_state = state_parser.parse_from_file(engine, state_path)
+                if parsed_state:
+                    loaded_states[engine] = parsed_state
+                    logger.info(f"✓ 已加载 {engine} State JSON: {len(parsed_state.sections)} 个段落")
+                else:
+                    logger.warning(f"⚠ {engine} State JSON 解析失败")
+            else:
+                logger.debug(f"未找到 {engine} 的 State JSON 文件")
+        except Exception as e:
+            logger.warning(f"加载 {engine} State JSON 失败: {e}")
+
+    return loaded_states
+
+
+def load_forum_logs() -> str:
+    """
+    加载论坛日志文件
+
+    Returns:
+        str: 论坛日志内容
+    """
+    forum_log_path = Path("logs/forum.log")
+    if forum_log_path.exists():
+        try:
+            content = forum_log_path.read_text(encoding='utf-8')
+            logger.info(f"✓ 已加载论坛日志: {len(content)} 字符")
+            return content
+        except Exception as e:
+            logger.warning(f"加载论坛日志失败: {e}")
+    else:
+        logger.debug("未找到论坛日志文件 logs/forum.log")
+    return ""
+
+
 def extract_query_from_reports(latest_files: Dict[str, str]) -> str:
     """
     从报告文件名中提取查询主题
@@ -226,7 +280,9 @@ def generate_report(
     reports: list[str],
     query: str,
     pdf_available: bool,
-    agent_config: Optional[Settings] = None
+    agent_config: Optional[Settings] = None,
+    loaded_states: Optional[Dict[str, Any]] = None,
+    forum_logs: str = ""
 ) -> Dict[str, Any]:
     """
     调用Report Engine生成报告
@@ -250,8 +306,16 @@ def generate_report(
         from ReportEngine.agent import ReportAgent
 
         # 初始化Report Agent
+        # Note: We don't pass agent_config because the global Settings object
+        # doesn't have ReportEngine-specific fields like LOG_FILE. The ReportAgent
+        # will use its own internal config from ReportEngine/utils/config.py
         logger.info("正在初始化 Report Engine...")
-        agent = ReportAgent(config=agent_config)
+        agent = ReportAgent()
+
+        # 注入 State JSON 数据用于 GraphRAG
+        if loaded_states:
+            agent._loaded_states = loaded_states
+            logger.info(f"已注入 {len(loaded_states)} 个引擎的 State 数据用于 GraphRAG")
 
         # 定义流式事件处理器
         def stream_handler(event_type: str, payload: Dict[str, Any]):
@@ -296,7 +360,7 @@ def generate_report(
         result = agent.generate_report(
             query=query,
             reports=reports,
-            forum_logs="",  # 不使用论坛日志
+            forum_logs=forum_logs,  # 使用加载的论坛日志
             custom_template="",  # 使用自动模板选择
             save_report=True,  # 自动保存报告
             stream_handler=stream_handler
@@ -554,12 +618,29 @@ def main():
         logger.error("❌ 未能加载任何报告内容")
         sys.exit(1)
 
+    # 加载 State JSON 文件用于 GraphRAG
+    loaded_states = load_state_json_files(latest_files)
+    if loaded_states:
+        logger.info(f"✓ 已加载 {len(loaded_states)} 个引擎的 State JSON 用于 GraphRAG")
+    else:
+        logger.warning("⚠ 未找到任何 State JSON 文件，GraphRAG 将无法正常工作")
+
+    # 加载论坛日志
+    forum_logs = load_forum_logs()
+
     # 提取或使用指定的查询主题
     query = args.query if args.query else extract_query_from_reports(latest_files)
     logger.info(f"使用报告主题: {query}")
 
     # 步骤 3: 生成报告
-    result = generate_report(reports, query, pdf_available, agent_config)
+    result = generate_report(
+        reports, 
+        query, 
+        pdf_available, 
+        agent_config,
+        loaded_states=loaded_states,
+        forum_logs=forum_logs
+    )
 
     # 步骤 4: 保存文件
     logger.info("\n" + "=" * 70)

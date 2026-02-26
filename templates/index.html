@@ -6588,6 +6588,16 @@ function getConsoleContainer() {
                     stopProgressPolling();
                     stopGraphPanelPolling();
 
+                    // 【新增】显示静态报告链接
+                    if (task && task.static_report_path) {
+                        const staticUrl = '/' + task.static_report_path;
+                        appendReportStreamLine(
+                            `📄 报告已生成！点击查看: <a href="${staticUrl}" target="_blank" style="color: #4a9eff; text-decoration: underline;">${task.report_file_name || '查看报告'}</a>`,
+                            'success',
+                            { badge: '完成' }
+                        );
+                    }
+
                     // 【修复】任务完成前强制刷新最后一次日志，确保所有日志都被读取
                     if (reportLogManager && reportLogManager.isRunning) {
                         reportLogManager.refresh();

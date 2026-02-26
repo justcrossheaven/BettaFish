@@ -107,6 +107,22 @@ class Settings(BaseSettings):
     SEARCH_TIMEOUT: int = Field(240, description="单次搜索请求超时")
     MAX_CONTENT_LENGTH: int = Field(500000, description="搜索最大内容长度")
     
+    # ================== Western API Settings (Twitter/Reddit) ====================
+    # Twitter/X (twikit - requires Twitter account)
+    TWITTER_USERNAME: Optional[str] = Field(None, description="Twitter username for twikit login")
+    TWITTER_EMAIL: Optional[str] = Field(None, description="Twitter email for twikit login")
+    TWITTER_PASSWORD: Optional[str] = Field(None, description="Twitter password for twikit login")
+    TWITTER_COOKIES_PATH: str = Field("twitter_cookies.json", description="Path to save/load Twitter cookies")
+    
+    # Reddit (PRAW - official free tier)
+    REDDIT_CLIENT_ID: Optional[str] = Field(None, description="Reddit app client ID")
+    REDDIT_CLIENT_SECRET: Optional[str] = Field(None, description="Reddit app client secret")
+    REDDIT_USER_AGENT: str = Field("BettaFish/1.0", description="Reddit user agent string")
+    
+    # ================== Trade & Investment Focus ====================
+    DEFAULT_WATCHLIST: str = Field("NVDA,AMD,MSFT,GOOGL,META", description="Default stock watchlist (comma-separated)")
+    FOCUS_SECTOR: str = Field("technology,AI", description="Focus sector for analysis (comma-separated)")
+    
     model_config = ConfigDict(
         env_file=ENV_FILE,
         env_prefix="",

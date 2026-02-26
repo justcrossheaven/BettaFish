@@ -29,7 +29,7 @@ def clean_json_tags(text: str) -> str:
 
 def clean_markdown_tags(text: str) -> str:
     """
-    清理文本中的Markdown标签
+    清理文本外层的Markdown代码块标签
     
     Args:
         text: 原始文本
@@ -37,47 +37,51 @@ def clean_markdown_tags(text: str) -> str:
     Returns:
         清理后的文本
     """
-    # 移除```markdown 和 ```标签
-    text = re.sub(r'```markdown\s*', '', text)
-    text = re.sub(r'```\s*$', '', text)
-    text = re.sub(r'```', '', text)
+    # 移除开头的 ```markdown 或 ```
+    text = re.sub(r'^```markdown\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+    # 移除结尾的 ```
+    text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
     
     return text.strip()
 
 
-def remove_reasoning_from_output(text: str) -> str:
+def remove_reasoning_from_output(text: str, expect_json: bool = True) -> str:
     """
     移除输出中的推理过程文本
     
     Args:
         text: 原始文本
+        expect_json: 是否期望输出为JSON格式（如果为True，会尝试寻找第一个{或[）
         
     Returns:
         清理后的文本
     """
-    # 查找JSON开始位置
-    json_start = -1
+    # 1. 优先移除 <thought> 标签内容（常见于某些模型）
+    text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL)
     
-    # 尝试找到第一个 { 或 [
-    for i, char in enumerate(text):
-        if char in '{[':
-            json_start = i
-            break
+    # 2. 如果期望JSON，寻找第一个 { 或 [
+    if expect_json:
+        json_start = -1
+        for i, char in enumerate(text):
+            if char in '{[':
+                json_start = i
+                break
+        
+        if json_start != -1:
+            # 检查截取后的内容是否包含基本的JSON闭合特征，防止误判Markdown中的括号
+            suffix = text[json_start:].strip()
+            if (suffix.startswith('{') and '}' in suffix) or (suffix.startswith('[') and ']' in suffix):
+                return suffix
     
-    if json_start != -1:
-        # 从JSON开始位置截取
-        return text[json_start:].strip()
-    
-    # 如果没有找到JSON标记，尝试其他方法
-    # 移除常见的推理标识
+    # 3. 如果不期望JSON，或者没找到明显的JSON结构，则只移除常见的推理关键字开头的行
     patterns = [
-        r'(?:reasoning|推理|思考|分析)[:：]\s*.*?(?=\{|\[)',  # 移除推理部分
-        r'(?:explanation|解释|说明)[:：]\s*.*?(?=\{|\[)',   # 移除解释部分
-        r'^.*?(?=\{|\[)',  # 移除JSON前的所有文本
+        r'^(?:reasoning|推理|思考|分析)[:：].*?$',
+        r'^(?:explanation|解释|说明)[:：].*?$',
     ]
     
     for pattern in patterns:
-        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE)
     
     return text.strip()
 

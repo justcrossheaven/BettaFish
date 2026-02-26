@@ -1,0 +1,33 @@
+### **Crisis & Risk Event Report**
+
+- **1.0 Executive Summary**
+  - 1.1 Event Overview
+  - 1.2 Immediate Impact Assessment
+  - 1.3 Recommended Actions
+- **2.0 Event Analysis**
+  - 2.1 Timeline of Events
+  - 2.2 Root Cause Analysis
+  - 2.3 Stakeholder Responses
+  - 2.4 Media Coverage Review
+- **3.0 Impact Assessment**
+  - 3.1 Financial Impact
+  - 3.2 Operational Impact
+  - 3.3 Reputational Impact
+  - 3.4 Regulatory Implications
+- **4.0 Sentiment Analysis**
+  - 4.1 Market Reaction
+  - 4.2 Social Media Sentiment
+  - 4.3 Analyst Commentary
+  - 4.4 Narrative Evolution
+- **5.0 Historical Comparisons**
+  - 5.1 Similar Historical Events
+  - 5.2 Recovery Patterns
+  - 5.3 Lessons Learned
+- **6.0 Risk Scenarios**
+  - 6.1 Best Case Recovery
+  - 6.2 Base Case Outlook
+  - 6.3 Worst Case Scenarios
+- **7.0 Investment Response**
+  - 7.1 Position Recommendations
+  - 7.2 Risk Management Actions
+  - 7.3 Key Monitoring Points

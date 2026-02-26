@@ -1,17 +1,19 @@
 """
-重试机制工具模块
-提供通用的网络请求重试功能，增强系统健壮性
+重试机制工具模块 (Retry Helper Module)
+Provides robust retry functionality for network requests and LLM API calls.
+Enhanced with jitter support and 503 error detection for model overload scenarios.
 """
 
 import time
+import random
 from functools import wraps
-from typing import Callable, Any
+from typing import Callable, Any, Optional
 import requests
 from loguru import logger
 
 # 配置日志
 class RetryConfig:
-    """重试配置类"""
+    """Retry configuration class with jitter support."""
     
     def __init__(
         self,
@@ -19,24 +21,30 @@ class RetryConfig:
         initial_delay: float = 1.0,
         backoff_factor: float = 2.0,
         max_delay: float = 60.0,
-        retry_on_exceptions: tuple = None
+        retry_on_exceptions: tuple = None,
+        jitter: bool = False,
+        jitter_range: float = 0.3
     ):
         """
-        初始化重试配置
+        Initialize retry configuration.
         
         Args:
-            max_retries: 最大重试次数
-            initial_delay: 初始延迟秒数
-            backoff_factor: 退避因子（每次重试延迟翻倍）
-            max_delay: 最大延迟秒数
-            retry_on_exceptions: 需要重试的异常类型元组
+            max_retries: Maximum number of retry attempts
+            initial_delay: Initial delay in seconds before first retry
+            backoff_factor: Exponential backoff multiplier
+            max_delay: Maximum delay in seconds between retries
+            retry_on_exceptions: Tuple of exception types to retry on
+            jitter: Whether to add random jitter to delays (prevents thundering herd)
+            jitter_range: Range of jitter as fraction of delay (0.3 = ±30%)
         """
         self.max_retries = max_retries
         self.initial_delay = initial_delay
         self.backoff_factor = backoff_factor
         self.max_delay = max_delay
+        self.jitter = jitter
+        self.jitter_range = jitter_range
         
-        # 默认需要重试的异常类型
+        # Default exception types to retry on
         if retry_on_exceptions is None:
             self.retry_on_exceptions = (
                 requests.exceptions.RequestException,
@@ -46,7 +54,7 @@ class RetryConfig:
                 requests.exceptions.TooManyRedirects,
                 ConnectionError,
                 TimeoutError,
-                Exception  # OpenAI和其他API可能抛出的一般异常
+                Exception  # OpenAI/Gemini and other API exceptions
             )
         else:
             self.retry_on_exceptions = retry_on_exceptions
@@ -88,14 +96,27 @@ def with_retry(config: RetryConfig = None):
                         logger.error(f"最终错误: {str(e)}")
                         raise e
                     
-                    # 计算延迟时间
-                    delay = min(
+                    # Calculate delay with exponential backoff
+                    base_delay = min(
                         config.initial_delay * (config.backoff_factor ** attempt),
                         config.max_delay
                     )
                     
-                    logger.warning(f"函数 {func.__name__} 第 {attempt + 1} 次尝试失败: {str(e)}")
-                    logger.info(f"将在 {delay:.1f} 秒后进行第 {attempt + 2} 次尝试...")
+                    # Apply jitter if enabled (random variance of ±jitter_range)
+                    if config.jitter:
+                        jitter_factor = 1 + random.uniform(-config.jitter_range, config.jitter_range)
+                        delay = base_delay * jitter_factor
+                    else:
+                        delay = base_delay
+                    
+                    # Check if this is a 503 model overloaded error
+                    error_str = str(e).lower()
+                    is_503_overload = '503' in error_str or 'overloaded' in error_str or 'model_overloaded' in error_str
+                    if is_503_overload:
+                        logger.warning(f"503 Model Overloaded detected for {func.__name__}")
+                    
+                    logger.warning(f"Function {func.__name__} attempt {attempt + 1} failed: {str(e)}")
+                    logger.info(f"Retrying in {delay:.1f} seconds (attempt {attempt + 2})...")
                     
                     time.sleep(delay)
                 
@@ -224,12 +245,14 @@ def make_retryable_request(
     
     return _execute()
 
-# 预定义一些常用的重试配置
+# Predefined retry configurations
 LLM_RETRY_CONFIG = RetryConfig(
-    max_retries=6,        # 保持额外重试次数
-    initial_delay=60.0,   # 首次等待至少 1 分钟
-    backoff_factor=2.0,   # 继续使用指数退避
-    max_delay=600.0       # 单次等待最长 10 分钟
+    max_retries=8,           # Increased from 6 for better resilience
+    initial_delay=20.0,      # 20 seconds initial delay
+    backoff_factor=1.8,      # Less aggressive backoff
+    max_delay=300.0,         # 5 minutes max delay
+    jitter=True,             # Enable jitter to prevent thundering herd
+    jitter_range=0.3         # ±30% variance
 )
 
 SEARCH_API_RETRY_CONFIG = RetryConfig(

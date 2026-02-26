@@ -98,7 +98,7 @@ class ReportFormattingNode(BaseNode):
         """
         try:
             # 清理响应文本
-            cleaned_output = remove_reasoning_from_output(output)
+            cleaned_output = remove_reasoning_from_output(output, expect_json=False)
             cleaned_output = clean_markdown_tags(cleaned_output)
             
             # 确保报告有基本结构

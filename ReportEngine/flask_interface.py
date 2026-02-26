@@ -301,6 +301,7 @@ class ReportTask:
         self.report_file_path = ""
         self.report_file_relative_path = ""
         self.report_file_name = ""
+        self.static_report_path = ""  # 添加静态路径字段
         self.state_file_path = ""
         self.state_file_relative_path = ""
         self.ir_file_path = ""
@@ -357,6 +358,7 @@ class ReportTask:
             'report_file_ready': bool(self.report_file_path),
             'report_file_name': self.report_file_name,
             'report_file_path': self.report_file_relative_path or self.report_file_path,
+            'static_report_path': self.static_report_path,  # 添加静态路径
             'state_file_ready': bool(self.state_file_path),
             'state_file_path': self.state_file_relative_path or self.state_file_path,
             'ir_file_ready': bool(self.ir_file_path),
@@ -543,6 +545,7 @@ def run_report_generation(task: ReportTask, query: str, custom_template: str = "
             task.report_file_path = generation_result.get('report_filepath', '')
             task.report_file_relative_path = generation_result.get('report_relative_path', '')
             task.report_file_name = generation_result.get('report_filename', '')
+            task.static_report_path = generation_result.get('static_report_path', '')  # 添加静态路径
             task.state_file_path = generation_result.get('state_filepath', '')
             task.state_file_relative_path = generation_result.get('state_relative_path', '')
             task.ir_file_path = generation_result.get('ir_filepath', '')
