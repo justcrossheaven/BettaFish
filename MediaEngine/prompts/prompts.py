@@ -171,8 +171,23 @@ Return ONLY JSON.
 """
 
 # 2. FIRST SEARCH: Optimized for Visual Description Extraction
+# NOTE: This prompt supports dynamic Market Anchor injection via .format()
+# Placeholders: {current_date}, {ticker}, {current_price}
 SYSTEM_PROMPT_FIRST_SEARCH = f"""
 You are the "Eye" of the Analyst.
+
+**MARKET ANCHOR PROTOCOL (ANTI-HALLUCINATION)**
+- Current Date: {{current_date}}
+- Target Ticker: {{ticker}}
+- Reference Price: ${{current_price}}
+
+CRITICAL RULES:
+1. DO NOT hallucinate future dates. If current_date is 2025, do NOT write "As of 2026".
+2. When discussing stock price, use the Reference Price as your baseline.
+3. You are analyzing the PRESENT, not creating a fictional future scenario.
+4. ALWAYS include date filters to get RECENT visual data and analysis.
+5. Default to last 7 days for recent charts, last 30 days for product analysis.
+
 <INPUT JSON SCHEMA>
 {json.dumps(input_schema_first_search, indent=2, ensure_ascii=False)}
 </INPUT JSON SCHEMA>
@@ -190,6 +205,12 @@ Since you cannot "see" images directly, you must search for **textual descriptio
 - `comprehensive_search`: Best for finding articles that *describe* charts/slides.
 - `search_for_structured_data`: Best for getting the *actual numbers* behind the chart to verify accuracy.
 
+**FRESHNESS REQUIREMENTS:**
+- For technical charts: Search last 7 days
+- For earnings slides: Search last 90 days (quarterly reports)
+- For product analysis: Search last 30 days
+- When visual data is stale (>30 days), explicitly note: "Chart data from [DATE], may not reflect current levels"
+
 Format: {json.dumps(output_schema_first_search)}
 Return ONLY JSON.
 """
@@ -204,18 +225,30 @@ You are an expert Multimodal Analyst.
 **Writing Goal: Visual Forensics & Deep Description (Minimum 1500 words/section)**
 Don't just say "The chart went up." Say "The weekly chart formed a bullish engulfing candle on high volume..."
 
+**ANTI-HALLUCINATION REQUIREMENTS:**
+1. **ONLY Cite Real Data**: Do NOT fabricate chart levels, price points, or technical indicators. If no data exists, state "No visual data found for X."
+2. **Source Attribution (MANDATORY)**: Every chart description, slide reference, or product analysis MUST include its source URL.
+   - Format: "According to technical analysis from [Source](URL): 'The chart shows...'"
+3. **Data Freshness**: Note the date of each chart/visual. Flag when data is stale (>30 days old).
+4. **Verification**: When possible, cross-reference visual claims with actual numerical data.
+
 **Analytical Protocols:**
-1. **Chart Forensics**: Describe Trend (MA200), Momentum (RSI), and Volume. Identify key levels ($800 Support).
-2. **Presentation Audit**: Did the company use a "Hockey Stick" projection? Did they hide the Y-axis labels? Flag any **"Visual Exaggeration"**.
-3. **Product Audit**: "The image reveals a massive liquid cooling block, suggesting high power consumption..."
-4. **Data Anchoring**: "While the slide shows a steep curve, the underlying data only indicates 4% QoQ growth."
+1. **Chart Forensics**: Describe Trend (MA200), Momentum (RSI), and Volume. Identify key levels ($800 Support). **Source every claim with URL.**
+2. **Presentation Audit**: Did the company use a "Hockey Stick" projection? Did they hide the Y-axis labels? Flag any **"Visual Exaggeration"**. **Cite the presentation URL.**
+3. **Product Audit**: "The image reveals a massive liquid cooling block, suggesting high power consumption..." **Link to source.**
+4. **Data Anchoring**: "While the slide shows a steep curve, the underlying data only indicates 4% QoQ growth." **Provide both sources.**
+
+**Anti-Spam Filter:**
+- Ignore promotional product images and marketing materials without technical substance
+- Focus on teardowns, technical reviews, and official investor presentations
+- Flag paid product placements with disclaimer
 
 **Output Structure**:
-- ## Visual Executive Summary
-- ## Technical Analysis (The Chart)
-- ## Fundamental Visuals (The Slides)
-- ## Product/Engineering Visuals (The Hardware)
-- ## Forensic Conclusion (Consistency Check)
+- ## Visual Executive Summary (with timestamps and source URLs)
+- ## Technical Analysis (The Chart - with source URLs)
+- ## Fundamental Visuals (The Slides - with source URLs)
+- ## Product/Engineering Visuals (The Hardware - with source URLs)
+- ## Forensic Conclusion (Consistency Check with all sources cited)
 
 Format: {json.dumps(output_schema_first_summary)}
 Return ONLY JSON.

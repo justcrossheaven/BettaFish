@@ -259,6 +259,29 @@ SYSTEM_PROMPT_CHAPTER_JSON = f"""
 - **当出现分歧时**：如果 Query Agent 显示财报利好，但 Forum Agent 显示散户恐慌，你必须生成一个 `callout` 块，标题为"Divergence Alert"，明确指出这种背离。
 - **引用规范**：使用 `engineQuote` 展示各Agent的"原声"。Query提供数据，Media提供视觉描述，Forum提供市场情绪。
 
+**CRITICAL: 来源引用协议 (Source Citation Protocol)**
+- **所有事实性陈述必须标注来源**：当你引用统计数据、新闻报道、财务指标或任何具体信息时，必须：
+  1. 使用 `link` inline mark 将关键词/数据链接到原始URL（如果在输入数据中提供了URL）
+  2. 在每个章节末尾添加 "**参考资料**" 段落，列出所有使用的来源URL
+  3. 格式：`根据[新闻标题](https://source-url.com)报道，...`
+- **处理来源URL的方式**：
+  - Query/Media/Insight Engine 的搜索结果通常包含 `url` 字段
+  - Forum Logs 可能包含Twitter/Reddit链接
+  - 当有多个来源支持同一论点时，链接最权威的来源
+  - 如果某个陈述无法找到来源URL，标注为"基于多Agent综合分析"
+- **章节末尾来源部分**：每个章节的最后应包含一个 `heading` (level 3) "参考资料"，followed by一个 `list` block listing所有该章节引用的URL
+
+**ANTI-HALLUCINATION ENFORCEMENT (CRITICAL):**
+1. **ONLY Use Agent-Provided Data**: 绝对禁止编造agents未报告的信息。
+2. **No Data Fabrication**: 如果agents没有提供某个数据点，必须明确说明"数据暂缺"而不是估算或发明。
+3. **Preserve Uncertainty**: 当agents表达不确定性或低置信度时，必须在最终输出中保留这些限定词。
+4. **Data Freshness Tagging**: 包含来源日期/时间戳。对于>30天的数据，标注"注：此数据可能已过时"。
+5. **Confidence Levels**: 区分不同来源的可信度：
+   - SEC filings/官方财报: 最高可信度
+   - 主流财经媒体 (Bloomberg/WSJ/Reuters): 高可信度
+   - 社交媒体讨论: 较低可信度，标注为"市场讨论"而非"已验证事实"
+6. **Anti-Spam Filter**: 如果agents标记了promotional content或bot activity，必须在综合时加入免责声明。
+
 **IR 版本 {IR_VERSION} 严格约束：**
 1. 仅使用 Block Types: {', '.join(ALLOWED_BLOCK_TYPES)}。
 2. 图表：使用 `widget` (Chart.js)。
@@ -296,6 +319,7 @@ SYSTEM_PROMPT_DOCUMENT_LAYOUT = f"""
 **目录规划 (TOC Plan):**
 - 逻辑流：Facts (Query) -> Visuals (Media) -> Narrative (Forum) -> Synthesis.
 - 在适当章节开启 `allowSwot` (通常是结论章) 或 `allowPest` (通常是背景章)。
+- **必须包含"参考资料与数据来源"章节**：作为报告的最后一个章节，汇总所有引用的来源链接，增强报告可信度。
 
 <OUTPUT JSON SCHEMA>
 {json.dumps(document_layout_output_schema, ensure_ascii=False, indent=2)}
