@@ -1,25 +1,28 @@
 """
 Reddit Search Tools for Trade & Investment Analysis
 
-Version: 1.0
-Last Updated: 2026-01-30
+Version: 1.1
+Last Updated: 2026-02-26
 
-This module provides Reddit search capabilities using the PRAW library
-(official Reddit API) for monitoring financial discussions.
+This module provides Reddit search capabilities using:
+1. PRAW library (official API) when credentials are available (100 req/min)
+2. Reddit's public JSON API as fallback (no auth needed, 60 req/min)
 
 Key Features:
 - Search posts across multiple subreddits
 - Get hot/trending posts from specific subreddits
 - Get post comments with sentiment context
 - Focus on financial/tech subreddits
+- Automatic fallback when credentials not available
 
-Cost: $0 (free tier: 100 requests/minute)
+Cost: $0 (free tier)
 """
 
 import os
 import sys
 import time
-from typing import List, Optional
+import requests
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -167,29 +170,99 @@ def parse_comment(comment: 'Comment') -> RedditComment:
     )
 
 
+# --- JSON API Fallback Functions ---
+
+def parse_json_submission(post_data: Dict[str, Any]) -> RedditPost:
+    """Parse Reddit JSON API submission into RedditPost dataclass."""
+    data = post_data.get('data', {})
+    
+    title = data.get('title', '')
+    text = data.get('selftext', '')
+    full_text = f"{title} {text}"
+    
+    created_utc = data.get('created_utc')
+    created_dt = datetime.utcfromtimestamp(created_utc) if created_utc else None
+    
+    return RedditPost(
+        id=data.get('id', ''),
+        title=title,
+        text=text[:2000],
+        subreddit=data.get('subreddit', ''),
+        author=data.get('author', '[deleted]'),
+        score=data.get('score', 0),
+        upvote_ratio=data.get('upvote_ratio', 0.0),
+        num_comments=data.get('num_comments', 0),
+        created_utc=created_utc,
+        created_at=created_dt.isoformat() if created_dt else None,
+        url=data.get('url', ''),
+        permalink=f"https://reddit.com{data.get('permalink', '')}",
+        is_self=data.get('is_self', True),
+        flair=data.get('link_flair_text'),
+        mentioned_tickers=extract_tickers(full_text),
+        awards_count=data.get('total_awards_received', 0)
+    )
+
+
+def fetch_reddit_json(url: str, params: Optional[Dict] = None, timeout: int = 30) -> Optional[Dict]:
+    """
+    Fetch data from Reddit's public JSON API.
+    
+    Args:
+        url: Reddit URL (will append .json if not present)
+        params: Query parameters
+        timeout: Request timeout
+    
+    Returns:
+        JSON response or None on error
+    """
+    if not url.endswith('.json'):
+        url = url.rstrip('/') + '.json'
+    
+    headers = {
+        'User-Agent': 'BettaFish/1.1 Trade Investment Monitor (Public API)'
+    }
+    
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[RedditJSON] Request failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"[RedditJSON] Parse failed: {e}")
+        return None
+
+
 # --- 3. Reddit Search Client ---
 
 class RedditSearchClient:
     """
-    Reddit search client using official PRAW library.
+    Reddit search client with dual-mode support:
+    1. PRAW (official API) when credentials available - 100 req/min, better features
+    2. Public JSON API fallback (no auth) - 60 req/min, limited features
     
-    This client uses the official Reddit API with a generous free tier
-    (100 requests/minute) for searching and monitoring subreddits.
+    Automatically falls back to JSON API when credentials not available.
     
     Features:
     - Search posts across multiple subreddits
     - Get hot/new/top posts from specific subreddits
-    - Get comments from posts
+    - Get comments from posts (PRAW only)
     - Financial/tech subreddit focus
     
     Usage:
-        client = RedditSearchClient()
+        # With credentials
+        client = RedditSearchClient()  # Uses PRAW if REDDIT_CLIENT_ID set
+        
+        # Without credentials (JSON API fallback)
+        client = RedditSearchClient()  # Auto-fallback to public API
+        
         results = client.search_posts("NVDA earnings")
         hot_posts = client.get_hot_posts("wallstreetbets", limit=10)
     """
     
     # Default subreddits for Trade & Investment focus
-    FINANCE_SUBREDDITS = ["wallstreetbets", "stocks", "investing", "options", "stockmarket"]
+    FINANCE_SUBREDDITS = ["wallstreetbets", "stocks", "investing", "options", "stockmarket", "SecurityAnalysis"]
     TECH_SUBREDDITS = ["technology", "nvidia", "AMD_Stock", "artificial", "MachineLearning"]
     ALL_DEFAULT_SUBREDDITS = FINANCE_SUBREDDITS + TECH_SUBREDDITS
     
@@ -207,25 +280,35 @@ class RedditSearchClient:
             client_secret: Reddit app client secret (or from REDDIT_CLIENT_SECRET env var)
             user_agent: Custom user agent (or from REDDIT_USER_AGENT env var)
         """
-        if not PRAW_AVAILABLE:
-            raise ImportError("praw library not installed. Run: pip install praw")
-        
         self.client_id = client_id or os.getenv("REDDIT_CLIENT_ID")
         self.client_secret = client_secret or os.getenv("REDDIT_CLIENT_SECRET")
-        self.user_agent = user_agent or os.getenv("REDDIT_USER_AGENT", "BettaFish/1.0 Trade Investment Monitor")
+        self.user_agent = user_agent or os.getenv("REDDIT_USER_AGENT", "BettaFish/1.1 Trade Investment Monitor")
         
         self._reddit = None
         self._initialized = False
+        self._use_praw = PRAW_AVAILABLE and bool(self.client_id) and bool(self.client_secret)
+        
+        if self._use_praw:
+            logger.info("[RedditSearchClient] PRAW mode enabled (credentials found)")
+        else:
+            logger.info("[RedditSearchClient] JSON API fallback mode (no credentials or PRAW not installed)")
     
     def _ensure_initialized(self) -> bool:
         """Initialize Reddit client if not already done."""
         if self._initialized:
             return True
         
+        if not self._use_praw:
+            # JSON API doesn't need initialization
+            self._initialized = True
+            return True
+        
         if not all([self.client_id, self.client_secret]):
             logger.warning("[RedditSearchClient] Reddit credentials not provided. "
-                          "Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET env vars.")
-            return False
+                          "Falling back to JSON API.")
+            self._use_praw = False
+            self._initialized = True
+            return True
         
         try:
             self._reddit = praw.Reddit(
@@ -234,11 +317,94 @@ class RedditSearchClient:
                 user_agent=self.user_agent
             )
             self._initialized = True
-            logger.info("[RedditSearchClient] Initialized Reddit client")
+            logger.info("[RedditSearchClient] Initialized PRAW client")
             return True
         except Exception as e:
-            logger.error(f"[RedditSearchClient] Initialization failed: {e}")
-            return False
+            logger.error(f"[RedditSearchClient] PRAW initialization failed: {e}. Falling back to JSON API.")
+            self._use_praw = False
+            self._initialized = True
+            return True
+    
+    def _search_posts_json(
+        self,
+        query: str,
+        subreddits: List[str],
+        sort: str = "relevance",
+        time_filter: str = "week",
+        limit: int = 25
+    ) -> List[RedditPost]:
+        """Search posts using Reddit's public JSON API (no auth required)."""
+        posts = []
+        
+        for subreddit in subreddits[:5]:  # Limit to avoid too many requests
+            try:
+                url = f"https://www.reddit.com/r/{subreddit}/search.json"
+                params = {
+                    'q': query,
+                    'sort': 'new' if sort == 'relevance' else sort,  # JSON API doesn't support 'relevance'
+                    't': time_filter,
+                    'limit': min(limit, 100),  # Reddit API limit
+                    'restrict_sr': 'on'  # Search within subreddit only
+                }
+                
+                logger.debug(f"[RedditJSON] Searching r/{subreddit} for '{query}'")
+                data = fetch_reddit_json(url, params)
+                
+                if not data or 'data' not in data:
+                    continue
+                
+                children = data['data'].get('children', [])
+                for child in children:
+                    if len(posts) >= limit:
+                        break
+                    try:
+                        post = parse_json_submission(child)
+                        posts.append(post)
+                    except Exception as e:
+                        logger.warning(f"[RedditJSON] Failed to parse post: {e}")
+                        continue
+                
+                # Small delay to avoid rate limiting
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.warning(f"[RedditJSON] Failed to search r/{subreddit}: {e}")
+                continue
+        
+        return posts
+    
+    def _get_posts_json(
+        self,
+        subreddit: str,
+        listing: str = "hot",
+        limit: int = 25
+    ) -> List[RedditPost]:
+        """Get posts from a subreddit using JSON API."""
+        try:
+            url = f"https://www.reddit.com/r/{subreddit}/{listing}.json"
+            params = {'limit': min(limit, 100)}
+            
+            logger.debug(f"[RedditJSON] Getting {listing} posts from r/{subreddit}")
+            data = fetch_reddit_json(url, params)
+            
+            if not data or 'data' not in data:
+                return []
+            
+            posts = []
+            children = data['data'].get('children', [])
+            for child in children[:limit]:
+                try:
+                    post = parse_json_submission(child)
+                    posts.append(post)
+                except Exception as e:
+                    logger.warning(f"[RedditJSON] Failed to parse post: {e}")
+                    continue
+            
+            return posts
+            
+        except Exception as e:
+            logger.error(f"[RedditJSON] Failed to get posts: {e}")
+            return []
     
     @with_graceful_retry(SEARCH_API_RETRY_CONFIG, default_return=None)
     def search_posts(
@@ -253,6 +419,7 @@ class RedditSearchClient:
         【Tool】Search Posts: Search Reddit posts across subreddits.
         
         Designed for AI Agent use - simple interface with smart defaults.
+        Uses PRAW if credentials available, falls back to JSON API.
         
         Args:
             query: Search query (supports ticker symbols like $NVDA)
@@ -265,28 +432,32 @@ class RedditSearchClient:
             RedditResponse with list of RedditPost objects
         """
         start_time = time.time()
-        logger.info(f"--- TOOL: Reddit Search (query: {query}) ---")
+        subreddits = subreddits or self.ALL_DEFAULT_SUBREDDITS
+        logger.info(f"--- TOOL: Reddit Search (query: {query}, mode: {'PRAW' if self._use_praw else 'JSON'}) ---")
         
         if not self._ensure_initialized():
             return RedditResponse(
                 query=query,
-                error="Reddit client not initialized. Check credentials."
+                error="Reddit client initialization failed."
             )
         
         try:
-            subreddits = subreddits or self.ALL_DEFAULT_SUBREDDITS
-            subreddit_str = "+".join(subreddits)
-            
-            submissions = self._reddit.subreddit(subreddit_str).search(
-                query,
-                sort=sort,
-                time_filter=time_filter,
-                limit=limit
-            )
-            
-            posts = []
-            for submission in submissions:
-                posts.append(parse_submission(submission))
+            if self._use_praw:
+                # Use PRAW (official API)
+                subreddit_str = "+".join(subreddits)
+                submissions = self._reddit.subreddit(subreddit_str).search(
+                    query,
+                    sort=sort,
+                    time_filter=time_filter,
+                    limit=limit
+                )
+                
+                posts = []
+                for submission in submissions:
+                    posts.append(parse_submission(submission))
+            else:
+                # Use JSON API fallback
+                posts = self._search_posts_json(query, subreddits, sort, time_filter, limit)
             
             return RedditResponse(
                 query=query,
@@ -313,6 +484,7 @@ class RedditSearchClient:
         【Tool】Get Hot Posts: Get trending posts from a specific subreddit.
         
         Useful for monitoring what's currently popular in finance/tech communities.
+        Uses PRAW if available, falls back to JSON API.
         
         Args:
             subreddit: Subreddit name (without r/)
@@ -322,20 +494,22 @@ class RedditSearchClient:
             RedditResponse with hot posts from the subreddit
         """
         start_time = time.time()
-        logger.info(f"--- TOOL: Reddit Hot Posts (subreddit: r/{subreddit}) ---")
+        logger.info(f"--- TOOL: Reddit Hot Posts (subreddit: r/{subreddit}, mode: {'PRAW' if self._use_praw else 'JSON'}) ---")
         
         if not self._ensure_initialized():
             return RedditResponse(
                 query=f"hot:r/{subreddit}",
-                error="Reddit client not initialized. Check credentials."
+                error="Reddit client initialization failed."
             )
         
         try:
-            submissions = self._reddit.subreddit(subreddit).hot(limit=limit)
-            
-            posts = []
-            for submission in submissions:
-                posts.append(parse_submission(submission))
+            if self._use_praw:
+                submissions = self._reddit.subreddit(subreddit).hot(limit=limit)
+                posts = []
+                for submission in submissions:
+                    posts.append(parse_submission(submission))
+            else:
+                posts = self._get_posts_json(subreddit, "hot", limit)
             
             return RedditResponse(
                 query=f"hot:r/{subreddit}",
@@ -362,6 +536,7 @@ class RedditSearchClient:
         【Tool】Get New Posts: Get newest posts from a specific subreddit.
         
         Useful for catching breaking news and discussions early.
+        Uses PRAW if available, falls back to JSON API.
         
         Args:
             subreddit: Subreddit name (without r/)
@@ -371,20 +546,22 @@ class RedditSearchClient:
             RedditResponse with newest posts from the subreddit
         """
         start_time = time.time()
-        logger.info(f"--- TOOL: Reddit New Posts (subreddit: r/{subreddit}) ---")
+        logger.info(f"--- TOOL: Reddit New Posts (subreddit: r/{subreddit}, mode: {'PRAW' if self._use_praw else 'JSON'}) ---")
         
         if not self._ensure_initialized():
             return RedditResponse(
                 query=f"new:r/{subreddit}",
-                error="Reddit client not initialized. Check credentials."
+                error="Reddit client initialization failed."
             )
         
         try:
-            submissions = self._reddit.subreddit(subreddit).new(limit=limit)
-            
-            posts = []
-            for submission in submissions:
-                posts.append(parse_submission(submission))
+            if self._use_praw:
+                submissions = self._reddit.subreddit(subreddit).new(limit=limit)
+                posts = []
+                for submission in submissions:
+                    posts.append(parse_submission(submission))
+            else:
+                posts = self._get_posts_json(subreddit, "new", limit)
             
             return RedditResponse(
                 query=f"new:r/{subreddit}",
@@ -442,6 +619,7 @@ class RedditSearchClient:
         【Tool】Get Post Comments: Get comments from a specific post.
         
         Useful for deep-diving into discussions.
+        NOTE: Requires PRAW (credentials). Not available with JSON API.
         
         Args:
             post_id: Reddit post ID
@@ -456,7 +634,14 @@ class RedditSearchClient:
         if not self._ensure_initialized():
             return RedditResponse(
                 query=f"comments:{post_id}",
-                error="Reddit client not initialized. Check credentials."
+                error="Reddit client initialization failed."
+            )
+        
+        if not self._use_praw:
+            return RedditResponse(
+                query=f"comments:{post_id}",
+                error="Comment fetching requires PRAW credentials. Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET.",
+                response_time=time.time() - start_time
             )
         
         try:

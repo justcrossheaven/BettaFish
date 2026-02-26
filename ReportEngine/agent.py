@@ -1531,6 +1531,14 @@ class ReportAgent:
         html_abs = str(html_path.resolve())
         html_rel = os.path.relpath(html_abs, os.getcwd())
 
+        # 同时保存到 static/reports/ 目录供Web访问
+        static_reports_dir = Path("static/reports")
+        static_reports_dir.mkdir(parents=True, exist_ok=True)
+        static_html_path = static_reports_dir / html_filename
+        static_html_path.write_text(html_content, encoding="utf-8")
+        static_html_rel = os.path.relpath(str(static_html_path), os.getcwd())
+        logger.info(f"HTML报告已保存到静态目录: {static_html_path}")
+
         ir_path = self._save_document_ir(document_ir, query_safe, timestamp)
         ir_abs = str(ir_path.resolve())
         ir_rel = os.path.relpath(ir_abs, os.getcwd())
@@ -1549,6 +1557,7 @@ class ReportAgent:
             'report_filename': html_filename,
             'report_filepath': html_abs,
             'report_relative_path': html_rel,
+            'static_report_path': static_html_rel,  # 添加静态路径
             'ir_filename': ir_path.name,
             'ir_filepath': ir_abs,
             'ir_relative_path': ir_rel,
